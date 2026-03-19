@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';" />
+  <title>AC Sciences</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header id="app-header">
+      <div id="header-left">
+        <span id="app-logo">⚗️</span>
+        <span id="app-title">AC Sciences</span>
+        <span id="project-name-display">— Untitled</span>
+      </div>
+      <div id="tab-bar">
+        <button class="tab-btn active" data-tab="sheet">Sheet</button>
+        <button class="tab-btn" data-tab="graph">Graph</button>
+      </div>
+      <div id="header-right">
+        <button id="save-btn" class="header-btn" title="Save (Ctrl+S)">Save</button>
+      </div>
+    </header>
+
+    <!-- Formula Bar (Sheet only) -->
+    <div id="formula-bar">
+      <span id="formula-cell-ref">—</span>
+      <span id="formula-eq">=</span>
+      <input id="formula-input" type="text" placeholder="Select a cell to edit its formula" disabled />
+    </div>
+
+    <!-- Tab: Sheet -->
+    <div id="tab-sheet" class="tab-content active">
+      <div id="sheet-toolbar">
+        <button id="add-col-btn" class="toolbar-btn green">+ Add Column</button>
+        <button id="add-row-btn" class="toolbar-btn blue">+ Add Row</button>
+      </div>
+      <div id="sheet-scroll-container">
+        <table id="sheet-table">
+          <thead>
+            <tr id="sheet-header-row">
+              <th class="row-num-header">#</th>
+            </tr>
+            <tr id="sheet-unit-row">
+              <th class="row-num-header unit-label">Unit</th>
+            </tr>
+          </thead>
+          <tbody id="sheet-body">
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab: Graph -->
+    <div id="tab-graph" class="tab-content hidden">
+      <div id="graph-layout">
+        <aside id="graph-sidebar">
+          <div class="sidebar-section">
+            <h3>Axes</h3>
+            <label>X Axis
+              <select id="x-axis-select"><option value="">— select —</option></select>
+            </label>
+            <label>Y Axis
+              <select id="y-axis-select"><option value="">— select —</option></select>
+            </label>
+          </div>
+
+          <div class="sidebar-section">
+            <h3>Options</h3>
+            <label class="checkbox-label">
+              <input type="checkbox" id="show-derivative-cb" />
+              Show Derivative (dy/dx)
+            </label>
+          </div>
+
+          <div class="sidebar-section">
+            <h3>Regression</h3>
+            <label>Curve type
+              <select id="regression-type-select">
+                <option value="none">None</option>
+                <option value="linear">Linear (y = ax + b)</option>
+                <option value="exponential">Exponential (y = a·eᵇˣ)</option>
+                <option value="parabola">Parabola (y = ax² + bx + c)</option>
+              </select>
+            </label>
+            <button id="fit-curve-btn" class="sidebar-btn amber">Fit Curve</button>
+            <div id="regression-result"></div>
+          </div>
+
+          <div class="sidebar-section">
+            <button id="refresh-graph-btn" class="sidebar-btn blue">Refresh Graph</button>
+          </div>
+        </aside>
+
+        <main id="graph-main">
+          <div id="chart-container">
+            <canvas id="chart-canvas"></canvas>
+          </div>
+          <div id="chart-placeholder" class="hidden">
+            <p>Select X and Y columns to display the graph.</p>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <script src="../node_modules/chart.js/dist/chart.umd.js"></script>
+  <script src="sheet.js"></script>
+  <script src="graph.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
