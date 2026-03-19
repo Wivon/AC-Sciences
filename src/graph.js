@@ -14,8 +14,12 @@ class Graph {
     this._pendingRegressColId = null;
     this._yStyleByColId = {};
     this._yColorByColId = {};
+    this._axisZoom = { x: null, y: null };
+    this._axisDrag = null;
 
     this._xSelect = document.getElementById('x-axis-select');
+    this._originXInput = document.getElementById('origin-x-input');
+    this._originYInput = document.getElementById('origin-y-input');
     this._yList   = document.getElementById('y-axis-list');
     this._deriveColSelect  = document.getElementById('derive-col-select');
     this._deriveBtn        = document.getElementById('derive-btn');
@@ -48,6 +52,10 @@ class Graph {
     this._deriveBtn.addEventListener('click', () => this._deriveColumn());
     this._refreshBtn.addEventListener('click', () => this._update());
     this._xSelect.addEventListener('change', () => this._onAxesChanged());
+    this._originXInput.addEventListener('change', () => this._onOriginChanged());
+    this._originYInput.addEventListener('change', () => this._onOriginChanged());
+    this._originXInput.addEventListener('input', () => this._onOriginChanged());
+    this._originYInput.addEventListener('input', () => this._onOriginChanged());
     this._regressionSelect.addEventListener('change', () => {
       this._regressionType = this._regressionSelect.value;
       this._regressionCoeffs = null;
@@ -63,6 +71,11 @@ class Graph {
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this._closeAllSeriesMenus();
     });
+    this._canvas.addEventListener('mousedown', (e) => this._onCanvasMouseDown(e));
+    this._canvas.addEventListener('mousemove', (e) => this._onCanvasMouseMove(e));
+    this._canvas.addEventListener('mouseleave', () => this._onCanvasMouseLeave());
+    document.addEventListener('mousemove', (e) => this._onGlobalMouseMove(e));
+    document.addEventListener('mouseup', (e) => this._onGlobalMouseUp(e));
 
     // Listen for sheet changes
     document.addEventListener('sheet-data-changed', () => {
@@ -256,6 +269,15 @@ class Graph {
   }
 
   loadFromData(graphData) {
+    this._axisZoom = { x: null, y: null };
+    this._axisDrag = null;
+    document.body.style.cursor = '';
+    if (graphData.originX !== undefined && graphData.originX !== null) {
+      this._originXInput.value = String(graphData.originX);
+    }
+    if (graphData.originY !== undefined && graphData.originY !== null) {
+      this._originYInput.value = String(graphData.originY);
+    }
     if (graphData.xColumn) this._xSelect.value = graphData.xColumn;
     this._yStyleByColId = {};
     if (graphData.yStyles && typeof graphData.yStyles === 'object') {
@@ -294,6 +316,8 @@ class Graph {
     });
     return {
       xColumn: this._xSelect.value || '',
+      originX: this._getAxisOriginValue('x', 0),
+      originY: this._getAxisOriginValue('y', 0),
       yColumns: this._getSelectedYIds(),
       regressionType: this._regressionType,
       yStyles,
@@ -303,7 +327,28 @@ class Graph {
 
   // ─── Internal ────────────────────────────────────────────────────────────────
 
+  _onOriginChanged() {
+    this._axisDrag = null;
+    document.body.style.cursor = '';
+    const originX = this._getAxisOriginValue('x');
+    const originY = this._getAxisOriginValue('y');
+    const chartX = this._chart && this._chart.scales ? this._chart.scales.x : null;
+    const chartY = this._chart && this._chart.scales ? this._chart.scales.y : null;
+    const rangeX = this._axisZoom.x && this._isValidRange(this._axisZoom.x.min, this._axisZoom.x.max)
+      ? this._axisZoom.x.max - this._axisZoom.x.min
+      : (chartX && this._isValidRange(chartX.min, chartX.max) ? chartX.max - chartX.min : 1);
+    const rangeY = this._axisZoom.y && this._isValidRange(this._axisZoom.y.min, this._axisZoom.y.max)
+      ? this._axisZoom.y.max - this._axisZoom.y.min
+      : (chartY && this._isValidRange(chartY.min, chartY.max) ? chartY.max - chartY.min : 1);
+
+    this._axisZoom.x = { min: originX, max: originX + Math.max(rangeX, 1e-9) };
+    this._axisZoom.y = { min: originY, max: originY + Math.max(rangeY, 1e-9) };
+
+    this._renderChart();
+  }
+
   _onAxesChanged() {
+    this._axisZoom = { x: null, y: null };
     this._closeAllSeriesMenus();
     this._regressionCoeffs = null;
     this._regressionResult.classList.remove('visible');
@@ -446,13 +491,21 @@ class Graph {
       },
       y: {
         title: { display: true, text: yAxisTitle, font: { size: 12 } },
-        grid: { color: 'rgba(0,0,0,0.06)' }
+        grid: { color: 'rgba(0,0,0,0.06)' },
+        afterFit: (scale) => {
+          // Keep Y-axis label gutter stable so zooming doesn't shift chart origin.
+          scale.width = 66;
+        }
       }
     };
+    this._applyAxisZoomToScales(scales);
 
     if (this._chart) {
       this._chart.data.datasets = datasets;
       this._chart.options.scales = scales;
+      if (this._chart.options.plugins && this._chart.options.plugins.legend) {
+        this._chart.options.plugins.legend.display = false;
+      }
       this._chart.update();
     } else {
       this._chart = new Chart(this._canvas, {
@@ -463,7 +516,7 @@ class Graph {
           maintainAspectRatio: false,
           animation: false,
           plugins: {
-            legend: { display: true, position: 'top', labels: { font: { size: 11 }, padding: 10 } },
+            legend: { display: false },
             tooltip: {
               callbacks: {
                 label: (ctx) => ` (${this._fmt(ctx.parsed.x)}, ${this._fmt(ctx.parsed.y)})`
@@ -481,6 +534,148 @@ class Graph {
     const abs = Math.abs(v);
     if (abs >= 1e5 || (abs < 1e-3 && v !== 0)) return v.toExponential(3);
     return parseFloat(v.toPrecision(6)).toString();
+  }
+
+  _getAxisOriginValue(mode, fallbackValue = 0) {
+    const input = mode === 'x' ? this._originXInput : this._originYInput;
+    const raw = input ? String(input.value).trim().replace(',', '.') : '';
+    const parsed = raw ? parseFloat(raw) : NaN;
+    if (Number.isFinite(parsed)) return parsed;
+    return fallbackValue;
+  }
+
+  _onCanvasMouseDown(e) {
+    const mode = this._getAxisDragMode(e);
+    if (!mode || !this._chart) return;
+    const scale = this._chart.scales[mode];
+    if (!scale || !this._isValidRange(scale.min, scale.max)) return;
+    const origin = this._getAxisOriginValue(mode, scale.min);
+    if (!Number.isFinite(origin)) return;
+
+    e.preventDefault();
+    this._axisDrag = {
+      mode,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      origin,
+      startMin: scale.min,
+      startMax: scale.max
+    };
+    const cursor = mode === 'x' ? 'ew-resize' : 'ns-resize';
+    this._canvas.style.cursor = cursor;
+    document.body.style.cursor = cursor;
+  }
+
+  _onCanvasMouseMove(e) {
+    if (this._axisDrag) return;
+    this._updateAxisCursor(e);
+  }
+
+  _onCanvasMouseLeave() {
+    if (this._axisDrag) return;
+    this._canvas.style.cursor = 'default';
+  }
+
+  _onGlobalMouseMove(e) {
+    if (!this._axisDrag) return;
+    e.preventDefault();
+
+    const drag = this._axisDrag;
+    const dx = e.clientX - drag.startClientX;
+    const dy = e.clientY - drag.startClientY;
+    const startRange = drag.startMax - drag.origin;
+    if (!Number.isFinite(startRange) || startRange <= 0) return;
+
+    // Drag direction controls zoom factor: right/up zooms in, left/down zooms out.
+    const dragPx = drag.mode === 'x' ? dx : dy;
+    const zoomFactor = drag.mode === 'x'
+      ? Math.exp(-dragPx / 180)
+      : Math.exp(dragPx / 180);
+    const minRange = Math.max(startRange / 500, 1e-12);
+    const maxRange = startRange * 200;
+    const minFactor = minRange / startRange;
+    const maxFactor = maxRange / startRange;
+    const clampedFactor = Math.min(maxFactor, Math.max(minFactor, zoomFactor));
+    const nextMin = drag.origin;
+    const nextMax = drag.origin + startRange * clampedFactor;
+    if (!this._isValidRange(nextMin, nextMax)) return;
+
+    if (drag.mode === 'x') {
+      this._axisZoom.x = { min: nextMin, max: nextMax };
+    } else {
+      this._axisZoom.y = { min: nextMin, max: nextMax };
+    }
+    this._applyAxisZoomToChart();
+  }
+
+  _onGlobalMouseUp(e) {
+    if (!this._axisDrag) return;
+    this._axisDrag = null;
+    document.body.style.cursor = '';
+    this._updateAxisCursor(e);
+  }
+
+  _updateAxisCursor(e) {
+    const mode = this._getAxisDragMode(e);
+    if (mode === 'x') {
+      this._canvas.style.cursor = 'ew-resize';
+    } else if (mode === 'y') {
+      this._canvas.style.cursor = 'ns-resize';
+    } else {
+      this._canvas.style.cursor = 'default';
+    }
+  }
+
+  _getAxisDragMode(e) {
+    if (!this._chart || !this._chart.scales || !this._chart.scales.x || !this._chart.scales.y) {
+      return null;
+    }
+
+    const rect = this._canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    if (x < 0 || y < 0 || x > rect.width || y > rect.height) return null;
+
+    const xScale = this._chart.scales.x;
+    const yScale = this._chart.scales.y;
+    const inXAxisBand = x >= xScale.left && x <= xScale.right && y >= xScale.top - 10 && y <= xScale.bottom + 18;
+    const inYAxisBand = y >= yScale.top && y <= yScale.bottom && x >= yScale.left - 18 && x <= yScale.right + 10;
+
+    if (inXAxisBand && inYAxisBand) {
+      const distToXAxis = Math.abs(y - xScale.top);
+      const distToYAxis = Math.abs(x - yScale.right);
+      return distToXAxis <= distToYAxis ? 'x' : 'y';
+    }
+    if (inXAxisBand) return 'x';
+    if (inYAxisBand) return 'y';
+    return null;
+  }
+
+  _applyAxisZoomToScales(scales) {
+    if (!scales || !scales.x || !scales.y) return;
+    const originX = this._getAxisOriginValue('x', 0);
+    const originY = this._getAxisOriginValue('y', 0);
+    scales.x.min = originX;
+    scales.y.min = originY;
+
+    const zoomX = this._axisZoom.x;
+    const zoomY = this._axisZoom.y;
+    if (zoomX && this._isValidRange(zoomX.min, zoomX.max) && zoomX.max > originX) {
+      scales.x.max = zoomX.max;
+    }
+    if (zoomY && this._isValidRange(zoomY.min, zoomY.max) && zoomY.max > originY) {
+      scales.y.max = zoomY.max;
+    }
+  }
+
+  _applyAxisZoomToChart() {
+    if (!this._chart || !this._chart.options) return;
+    this._applyAxisZoomToScales(this._chart.options.scales);
+    this._chart.update('none');
+  }
+
+  _isValidRange(min, max) {
+    return Number.isFinite(min) && Number.isFinite(max) && max > min;
   }
 
   // ─── Regression ───────────────────────────────────────────────────────────
