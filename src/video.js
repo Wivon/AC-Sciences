@@ -16,7 +16,11 @@ class VideoTracker {
     this._scaleInput = document.getElementById('video-scale-input');
     this._scaleDisplay = document.getElementById('video-scale-display');
     this._startFrameInput = document.getElementById('video-start-frame-input');
-    this._goStartBtn = document.getElementById('video-go-start-btn');
+    this._startFrameValue = document.getElementById('video-start-frame-value');
+    this._frameFirstBtn = document.getElementById('video-frame-first-btn');
+    this._framePrevBtn = document.getElementById('video-frame-prev-btn');
+    this._frameNextBtn = document.getElementById('video-frame-next-btn');
+    this._frameLastBtn = document.getElementById('video-frame-last-btn');
     this._trackBtn = document.getElementById('video-track-btn');
     this._undoBtn = document.getElementById('video-undo-btn');
     this._resetBtn = document.getElementById('video-reset-btn');
@@ -31,6 +35,10 @@ class VideoTracker {
     this._ctx = this._canvas.getContext('2d');
 
     this._videoObjectUrl = null;
+    this._transcodedOutputPath = '';
+    this._sourceKind = 'none'; // none | original | transcoded
+    this._inputVideoPath = '';
+    this._aviFallbackTried = false;
     this._videoName = '';
     this._videoLoaded = false;
     this._duration = 0;
@@ -40,6 +48,7 @@ class VideoTracker {
     this._currentFrame = 0;
     this._startFrame = 0;
     this._busySeeking = false;
+    this._startFrameSeekToken = 0;
 
     this._originPx = null; // {x, y} in video pixels
     this._scale = null;    // {from, to, pixels, meters, metersPerPx}
@@ -88,6 +97,7 @@ class VideoTracker {
     const safe = data && typeof data === 'object' ? data : {};
     this._startFrame = this._clampFrame(parseInt(safe.startFrame, 10) || 0);
     this._startFrameInput.value = String(this._startFrame);
+    this._updateStartFrameDisplay();
     this._fps = (typeof safe.fps === 'number' && isFinite(safe.fps) && safe.fps > 0) ? safe.fps : this._fps;
     this._fpsEstimated = !!safe.fpsEstimated;
 
@@ -139,20 +149,17 @@ class VideoTracker {
     this._video.addEventListener('suspend', () => this._debugState('video:suspend'));
     this._video.addEventListener('abort', () => this._debugState('video:abort'));
     this._video.addEventListener('emptied', () => this._debugState('video:emptied'));
-    this._video.addEventListener('error', () => {
-      this._debugState('video:error');
-      const err = this._mediaErrorInfo();
-      const extra = err.code === 4
-        ? '\nLe conteneur/codec AVI n\'est probablement pas decode par Chromium/Electron. Convertissez en MP4 (H.264).'
-        : '';
-      alert(`Impossible de lire cette vidéo (code ${err.code} - ${err.reason}).${extra}\nVoir la console pour le détail.`);
-      this._resetVideo(false);
-    });
+    this._video.addEventListener('error', () => this._onVideoError());
 
     this._setOriginBtn.addEventListener('click', () => this._toggleMode('set-origin'));
     this._setScaleBtn.addEventListener('click', () => this._toggleMode('set-scale'));
     this._trackBtn.addEventListener('click', () => this._toggleTracking());
-    this._goStartBtn.addEventListener('click', () => this._goToStartFrame());
+    this._startFrameInput.addEventListener('input', () => this._goToStartFrame());
+    this._startFrameInput.addEventListener('change', () => this._goToStartFrame());
+    this._frameFirstBtn.addEventListener('click', () => this._moveStartFrame('first'));
+    this._framePrevBtn.addEventListener('click', () => this._moveStartFrame(-1));
+    this._frameNextBtn.addEventListener('click', () => this._moveStartFrame(1));
+    this._frameLastBtn.addEventListener('click', () => this._moveStartFrame('last'));
     this._undoBtn.addEventListener('click', () => this._undoLastSample());
     this._resetBtn.addEventListener('click', () => this._resetTracking());
 
@@ -173,11 +180,81 @@ class VideoTracker {
 
   // ─── Video Import ───────────────────────────────────────────────────────────
 
+  async _onVideoError() {
+    this._debugState('video:error');
+    const err = this._mediaErrorInfo();
+    const isAvi = /\.avi$/i.test(this._videoName);
+    const canFallback = isAvi
+      && !this._aviFallbackTried
+      && this._sourceKind === 'original'
+      && !!this._inputVideoPath
+      && !!(window.electronAPI && typeof window.electronAPI.transcodeVideo === 'function');
+
+    if (canFallback) {
+      await this._tryAviFallbackTranscode();
+      return;
+    }
+
+    let hint = '';
+    if (isAvi && err.code === 4) {
+      hint = '\nCe codec AVI n\'est pas decode par Chromium/Electron.';
+    }
+    alert(`Impossible de lire cette vidéo (code ${err.code} - ${err.reason}).${hint}\nVoir la console pour le détail.`);
+    this._resetVideo(false);
+  }
+
+  async _tryAviFallbackTranscode() {
+    this._aviFallbackTried = true;
+    this._meta.innerHTML = '<div>AVI non lisible directement. Conversion en MP4 en cours…</div>';
+    this._debugLog('video:fallback-transcode:start', {
+      inputPath: this._inputVideoPath
+    });
+
+    try {
+      const result = await window.electronAPI.transcodeVideo(this._inputVideoPath);
+      this._debugLog('video:fallback-transcode:result', result);
+
+      if (!result || !result.success || !result.outputUrl) {
+        const reason = result && result.error ? result.error : 'unknown';
+        const details = result && result.stderr ? `\n${result.stderr}` : '';
+        const extra = reason === 'ffmpeg-unavailable'
+          ? '\nLe binaire ffmpeg n\'est pas disponible dans l\'application.'
+          : '';
+        alert(`Conversion AVI -> MP4 impossible (${reason}).${extra}${details ? '\nVoir console pour les détails.' : ''}`);
+        this._resetVideo(false);
+        return;
+      }
+
+      if (this._videoObjectUrl) {
+        URL.revokeObjectURL(this._videoObjectUrl);
+        this._videoObjectUrl = null;
+      }
+
+      this._sourceKind = 'transcoded';
+      this._transcodedOutputPath = result.outputPath || '';
+      this._video.src = result.outputUrl;
+      this._video.load();
+      this._debugState('video:fallback-transcode:load-requested', {
+        outputPath: this._transcodedOutputPath,
+        outputUrl: result.outputUrl
+      });
+    } catch (e) {
+      this._debugLog('video:fallback-transcode:error', {
+        message: e && e.message ? e.message : String(e)
+      });
+      alert('Conversion AVI -> MP4 impossible (erreur inattendue). Voir console.');
+      this._resetVideo(false);
+    }
+  }
+
   _onFileSelected() {
     const file = this._fileInput.files && this._fileInput.files[0];
     if (!file) return;
 
     const name = file.name || '';
+    const filePath = (window.electronAPI && typeof window.electronAPI.getPathForFile === 'function')
+      ? (window.electronAPI.getPathForFile(file) || '')
+      : (file.path || '');
     const canPlayType = {
       mp4: this._video.canPlayType('video/mp4'),
       mp4_h264: this._video.canPlayType('video/mp4; codecs="avc1.42E01E, mp4a.40.2"'),
@@ -188,8 +265,12 @@ class VideoTracker {
       name: file.name,
       type: file.type || '(vide)',
       sizeBytes: file.size,
+      path: filePath || '(not-exposed)',
       canPlayType
     });
+    if (/\.avi$/i.test(name) && !filePath) {
+      console.warn('[VideoTracker] Aucun chemin local detecte pour ce fichier AVI. La conversion de secours ffmpeg ne pourra pas demarrer.');
+    }
     if (!/\.(mp4|avi)$/i.test(name)) {
       alert('Formats supportés: .mp4 et .avi');
       this._fileInput.value = '';
@@ -201,6 +282,9 @@ class VideoTracker {
 
     this._resetVideo(true);
     this._videoName = name;
+    this._inputVideoPath = filePath;
+    this._aviFallbackTried = false;
+    this._sourceKind = 'original';
     this._videoObjectUrl = URL.createObjectURL(file);
     this._video.src = this._videoObjectUrl;
     this._video.load();
@@ -225,10 +309,9 @@ class VideoTracker {
     }
 
     this._frameCount = Math.max(1, Math.round(this._duration * this._fps));
+    this._startFrameInput.min = '0';
     this._startFrameInput.max = String(Math.max(0, this._frameCount - 1));
-    this._startFrame = this._clampFrame(parseInt(this._startFrameInput.value, 10) || 0);
-    this._startFrameInput.value = String(this._startFrame);
-    await this._seekToFrame(this._startFrame);
+    await this._goToStartFrame(false);
 
     this._updateMetadataUI();
     this._updateStatusUI();
@@ -242,6 +325,7 @@ class VideoTracker {
     this._frameCount = 1;
     this._currentFrame = 0;
     this._busySeeking = false;
+    this._startFrameSeekToken++;
     this._setMode('idle');
 
     if (!keepCalibration) {
@@ -254,6 +338,16 @@ class VideoTracker {
       URL.revokeObjectURL(this._videoObjectUrl);
       this._videoObjectUrl = null;
     }
+    this._sourceKind = 'none';
+    this._inputVideoPath = '';
+    this._aviFallbackTried = false;
+    this._transcodedOutputPath = '';
+    this._videoName = '';
+    this._startFrame = 0;
+    this._startFrameInput.min = '0';
+    this._startFrameInput.max = '0';
+    this._startFrameInput.value = '0';
+    this._updateStartFrameDisplay();
     this._video.removeAttribute('src');
     this._video.load();
     this._updateMetadataUI();
@@ -267,9 +361,13 @@ class VideoTracker {
     const resolution = (this._video.videoWidth && this._video.videoHeight)
       ? `${this._video.videoWidth} × ${this._video.videoHeight}`
       : '—';
+    const source = this._sourceKind === 'transcoded'
+      ? 'AVI converti en MP4'
+      : (this._sourceKind === 'original' ? 'Original' : '—');
     const name = this._videoName || '—';
     this._meta.innerHTML = `
       <div>Fichier: ${name}</div>
+      <div>Source: ${source}</div>
       <div>Résolution: ${resolution}</div>
       <div>Durée: ${durationStr}</div>
       <div>FPS: ${fpsStr}</div>
@@ -290,9 +388,28 @@ class VideoTracker {
     this._setScaleBtn.classList.toggle('active', this._mode === 'set-scale');
     this._trackBtn.classList.toggle('active', this._mode === 'tracking');
     this._trackBtn.textContent = this._mode === 'tracking'
-      ? '5. Arrêter le pointage'
-      : '5. Démarrer le pointage';
+      ? '4. Arrêter le pointage'
+      : '4. Démarrer le pointage';
     this._render();
+  }
+
+  _updateStartFrameDisplay() {
+    if (!this._startFrameValue) return;
+    this._startFrameValue.textContent = `Frame de départ: ${this._startFrame}`;
+    this._updateFrameNavButtons();
+  }
+
+  _updateFrameNavButtons() {
+    if (!this._frameFirstBtn || !this._framePrevBtn || !this._frameNextBtn || !this._frameLastBtn) return;
+    const maxFrame = Math.max(0, this._frameCount - 1);
+    const atStart = this._startFrame <= 0;
+    const atEnd = this._startFrame >= maxFrame;
+    const disabled = !this._videoLoaded;
+
+    this._frameFirstBtn.disabled = disabled || atStart;
+    this._framePrevBtn.disabled = disabled || atStart;
+    this._frameNextBtn.disabled = disabled || atEnd;
+    this._frameLastBtn.disabled = disabled || atEnd;
   }
 
   _updateStatusUI() {
@@ -409,13 +526,33 @@ class VideoTracker {
 
   // ─── Tracking ───────────────────────────────────────────────────────────────
 
-  async _goToStartFrame() {
-    if (!this._videoLoaded) return;
+  async _goToStartFrame(emitChange = true) {
     const value = parseInt(this._startFrameInput.value, 10);
     this._startFrame = this._clampFrame(isFinite(value) ? value : 0);
     this._startFrameInput.value = String(this._startFrame);
+    this._updateStartFrameDisplay();
+
+    if (!this._videoLoaded) return;
+
+    const seekToken = ++this._startFrameSeekToken;
     await this._seekToFrame(this._startFrame);
-    this._emitChange();
+    if (seekToken !== this._startFrameSeekToken) return;
+
+    if (emitChange) this._emitChange();
+  }
+
+  async _moveStartFrame(direction) {
+    const current = parseInt(this._startFrameInput.value, 10);
+    const base = isFinite(current) ? current : this._startFrame;
+    const maxFrame = Math.max(0, this._frameCount - 1);
+
+    let next = base;
+    if (direction === 'first') next = 0;
+    else if (direction === 'last') next = maxFrame;
+    else next = base + (direction > 0 ? 1 : -1);
+
+    this._startFrameInput.value = String(this._clampFrame(next));
+    await this._goToStartFrame();
   }
 
   _toggleTracking() {
@@ -458,6 +595,9 @@ class VideoTracker {
 
     if (frame < this._frameCount - 1) {
       await this._seekToFrame(frame + 1);
+    } else if (this._mode === 'tracking') {
+      // Auto-stop pointage when the last frame has been annotated.
+      this._setMode('idle');
     }
   }
 
@@ -704,15 +844,60 @@ class VideoTracker {
     const p = this._videoToCanvasPoint(point);
     if (!p) return;
     const ctx = this._ctx;
+    const arm = 12;
     ctx.save();
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(p.x - 8, p.y);
-    ctx.lineTo(p.x + 8, p.y);
-    ctx.moveTo(p.x, p.y - 8);
-    ctx.lineTo(p.x, p.y + 8);
+    ctx.moveTo(p.x - arm, p.y);
+    ctx.lineTo(p.x + arm, p.y);
+    ctx.moveTo(p.x, p.y - arm);
+    ctx.lineTo(p.x, p.y + arm);
     ctx.stroke();
+    ctx.beginPath();
+    ctx.fillStyle = color;
+    ctx.arc(p.x, p.y, 5.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  _drawAxes(originVideo) {
+    const rect = this._getDrawRect();
+    const origin = this._videoToCanvasPoint(originVideo);
+    if (!rect || !origin) return;
+
+    const ctx = this._ctx;
+    const color = 'rgba(250,204,21,0.9)';
+    const xEnd = rect.x + rect.w;
+    const yTop = rect.y;
+
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 1.8;
+    ctx.setLineDash([8, 6]);
+    ctx.beginPath();
+    ctx.moveTo(rect.x, origin.y);
+    ctx.lineTo(xEnd, origin.y);
+    ctx.moveTo(origin.x, rect.y + rect.h);
+    ctx.lineTo(origin.x, yTop);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Arrowheads for +X (right) and +Y (up).
+    ctx.beginPath();
+    ctx.moveTo(xEnd, origin.y);
+    ctx.lineTo(xEnd - 10, origin.y - 5);
+    ctx.lineTo(xEnd - 10, origin.y + 5);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(origin.x, yTop);
+    ctx.lineTo(origin.x - 5, yTop + 10);
+    ctx.lineTo(origin.x + 5, yTop + 10);
+    ctx.closePath();
+    ctx.fill();
     ctx.restore();
   }
 
@@ -760,6 +945,10 @@ class VideoTracker {
     this._placeholder.classList.add('hidden');
     ctx.drawImage(this._video, rect.x, rect.y, rect.w, rect.h);
 
+    if (this._originPx) {
+      this._drawAxes(this._originPx);
+    }
+
     // Existing tracked points
     this._samples.forEach((s) => {
       if (s.frame > this._currentFrame) return;
@@ -767,8 +956,11 @@ class VideoTracker {
       if (!p) return;
       ctx.beginPath();
       ctx.fillStyle = 'rgba(220,38,38,0.92)';
-      ctx.arc(p.x, p.y, 4.2, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, 6.6, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
     });
 
     if (this._originPx) {

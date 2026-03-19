@@ -22,6 +22,10 @@
   const formulaBar = document.getElementById('formula-bar');
   const saveBtn = document.getElementById('save-btn');
   const openBtn = document.getElementById('open-btn');
+  const logoBtn = document.getElementById('claveille-logo-btn');
+  const aboutPopup = document.getElementById('about-popup');
+  const aboutPopupBackdrop = document.getElementById('about-popup-backdrop');
+  const aboutPopupCard = document.getElementById('about-popup-card');
 
   // ─── Create Sheet, Graph & Video ─────────────────────────────────────────────
 
@@ -89,6 +93,14 @@
       window.electronAPI.setTitle(name);
     }
     document.title = `Labo Claveille — ${name}`;
+  }
+
+  function openAboutPopup() {
+    if (aboutPopup) aboutPopup.classList.remove('hidden');
+  }
+
+  function closeAboutPopup() {
+    if (aboutPopup) aboutPopup.classList.add('hidden');
   }
 
   function markDirty() {
@@ -248,10 +260,30 @@
 
   saveBtn.addEventListener('click', () => saveProject(false));
   openBtn.addEventListener('click', () => openProject());
+  if (logoBtn) {
+    logoBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      openAboutPopup();
+    });
+  }
+  if (aboutPopupBackdrop) aboutPopupBackdrop.addEventListener('click', closeAboutPopup);
+  if (aboutPopup) {
+    aboutPopup.addEventListener('click', (e) => {
+      if (e.target === aboutPopup) closeAboutPopup();
+    });
+  }
+  if (aboutPopupCard) {
+    aboutPopupCard.addEventListener('click', (e) => e.stopPropagation());
+  }
 
   // ─── Keyboard Shortcuts ───────────────────────────────────────────────────────
 
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && aboutPopup && !aboutPopup.classList.contains('hidden')) {
+      e.preventDefault();
+      closeAboutPopup();
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault();
       saveProject(e.shiftKey);

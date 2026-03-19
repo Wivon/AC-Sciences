@@ -12,15 +12,22 @@ class Graph {
     this._regressionType = 'none';
     this._pendingSelectYId = null;
     this._pendingRegressColId = null;
-    this._yStyleByColId = {};
+    this._yLineStyleByColId = {};
+    this._yPointStyleByColId = {};
     this._yColorByColId = {};
     this._axisZoom = { x: null, y: null };
     this._axisDrag = null;
+    this._cursorMode = 'normal'; // normal | pointer
+    this._pointerState = null;   // { xPx, yPx, xValue, values: [{label,color,y}] }
+    this._pointerSeries = [];
+    this._pointerXAxisLabel = 'X';
+    this._cursorMenuEl = null;
 
     this._xSelect = document.getElementById('x-axis-select');
     this._originXInput = document.getElementById('origin-x-input');
     this._originYInput = document.getElementById('origin-y-input');
     this._yList   = document.getElementById('y-axis-list');
+    this._yPanel  = document.getElementById('graph-y-panel');
     this._deriveColSelect  = document.getElementById('derive-col-select');
     this._deriveBtn        = document.getElementById('derive-btn');
     this._regressColSelect = document.getElementById('regress-col-select');
@@ -30,6 +37,7 @@ class Graph {
     this._refreshBtn = document.getElementById('refresh-graph-btn');
     this._canvas = document.getElementById('chart-canvas');
     this._placeholder = document.getElementById('chart-placeholder');
+    this._buildCursorMenu();
 
     // Series colors (Google Calendar-like palette)
     this._colorOptions = [
@@ -51,7 +59,7 @@ class Graph {
     this._fitBtn.addEventListener('click', () => this._fitCurve());
     this._deriveBtn.addEventListener('click', () => this._deriveColumn());
     this._refreshBtn.addEventListener('click', () => this._update());
-    this._xSelect.addEventListener('change', () => this._onAxesChanged());
+    this._xSelect.addEventListener('change', () => this._onAxesChanged({ xChanged: true }));
     this._originXInput.addEventListener('change', () => this._onOriginChanged());
     this._originYInput.addEventListener('change', () => this._onOriginChanged());
     this._originXInput.addEventListener('input', () => this._onOriginChanged());
@@ -67,13 +75,23 @@ class Graph {
       if (!(target instanceof Element) || !target.closest('.y-pill-row')) {
         this._closeAllSeriesMenus();
       }
+      if (!(target instanceof Element) || !target.closest('#chart-cursor-menu')) {
+        this._hideCursorMenu();
+      }
     });
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') this._closeAllSeriesMenus();
+      if (e.key === 'Escape') {
+        this._closeAllSeriesMenus();
+        this._hideCursorMenu();
+      }
     });
+    if (this._yPanel) {
+      this._yPanel.addEventListener('scroll', () => this._closeAllSeriesMenus());
+    }
     this._canvas.addEventListener('mousedown', (e) => this._onCanvasMouseDown(e));
     this._canvas.addEventListener('mousemove', (e) => this._onCanvasMouseMove(e));
     this._canvas.addEventListener('mouseleave', () => this._onCanvasMouseLeave());
+    this._canvas.addEventListener('contextmenu', (e) => this._onCanvasContextMenu(e));
     document.addEventListener('mousemove', (e) => this._onGlobalMouseMove(e));
     document.addEventListener('mouseup', (e) => this._onGlobalMouseUp(e));
 
@@ -86,14 +104,93 @@ class Graph {
 
   // ─── Public API ─────────────────────────────────────────────────────────────
 
+  _buildCursorMenu() {
+    if (this._cursorMenuEl) return;
+    const menu = document.createElement('div');
+    menu.id = 'chart-cursor-menu';
+    menu.className = 'chart-context-menu hidden';
+    const options = [
+      { mode: 'normal', label: 'Normal' },
+      { mode: 'pointer', label: 'Pointeur' }
+    ];
+    options.forEach(({ mode, label }) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'chart-context-item';
+      item.dataset.mode = mode;
+      item.textContent = label;
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._setCursorMode(mode);
+        this._hideCursorMenu();
+      });
+      menu.appendChild(item);
+    });
+    document.body.appendChild(menu);
+    this._cursorMenuEl = menu;
+    this._syncCursorMenuSelection();
+  }
+
+  _onCanvasContextMenu(e) {
+    e.preventDefault();
+    this._showCursorMenu(e.clientX, e.clientY);
+  }
+
+  _showCursorMenu(clientX, clientY) {
+    if (!this._cursorMenuEl) return;
+    this._syncCursorMenuSelection();
+    this._cursorMenuEl.classList.remove('hidden');
+    this._cursorMenuEl.style.left = '0px';
+    this._cursorMenuEl.style.top = '0px';
+    const rect = this._cursorMenuEl.getBoundingClientRect();
+    const gap = 8;
+    const maxX = window.innerWidth - rect.width - gap;
+    const maxY = window.innerHeight - rect.height - gap;
+    const x = Math.max(gap, Math.min(clientX, maxX));
+    const y = Math.max(gap, Math.min(clientY, maxY));
+    this._cursorMenuEl.style.left = `${x}px`;
+    this._cursorMenuEl.style.top = `${y}px`;
+  }
+
+  _hideCursorMenu() {
+    if (!this._cursorMenuEl) return;
+    this._cursorMenuEl.classList.add('hidden');
+  }
+
+  _syncCursorMenuSelection() {
+    if (!this._cursorMenuEl) return;
+    this._cursorMenuEl.querySelectorAll('.chart-context-item').forEach((item) => {
+      item.classList.toggle('selected', item.dataset.mode === this._cursorMode);
+    });
+  }
+
+  _setCursorMode(mode) {
+    const next = mode === 'pointer' ? 'pointer' : 'normal';
+    if (this._cursorMode === next) return;
+    this._cursorMode = next;
+    this._syncCursorMenuSelection();
+    if (next !== 'pointer') {
+      this._pointerState = null;
+    }
+    if (this._chart) this._chart.draw();
+    if (next === 'pointer') {
+      this._canvas.style.cursor = 'crosshair';
+    } else {
+      this._canvas.style.cursor = 'default';
+    }
+  }
+
   refreshColumns() {
     const cols = this._sheet.getColumns();
     const xVal = this._xSelect.value;
     const prevYIds = this._getSelectedYIds();
     const selectedYIds = new Set(prevYIds);
     const colIdSet = new Set(cols.map(c => c.id));
-    Object.keys(this._yStyleByColId).forEach(colId => {
-      if (!colIdSet.has(colId)) delete this._yStyleByColId[colId];
+    Object.keys(this._yLineStyleByColId).forEach(colId => {
+      if (!colIdSet.has(colId)) delete this._yLineStyleByColId[colId];
+    });
+    Object.keys(this._yPointStyleByColId).forEach(colId => {
+      if (!colIdSet.has(colId)) delete this._yPointStyleByColId[colId];
     });
     Object.keys(this._yColorByColId).forEach(colId => {
       if (!colIdSet.has(colId)) delete this._yColorByColId[colId];
@@ -124,11 +221,16 @@ class Graph {
       this._regressColSelect.value = regressVal;
     }
 
+    const activeXId = this._xSelect.value;
+    if (activeXId) selectedYIds.delete(activeXId);
+
     // Rebuild Y list with style context menus
     this._yList.innerHTML = '';
     cols.forEach((col, colIdx) => {
+      if (col.id === activeXId) return;
       const label = col.unit ? `${col.name} (${col.unit})` : col.name;
-      const style = this._getSeriesStyle(col.id);
+      const lineStyle = this._getSeriesLineStyle(col.id);
+      const pointStyle = this._getSeriesPointStyle(col.id);
       const color = this._getSeriesColor(col.id, colIdx);
 
       const row = document.createElement('div');
@@ -161,36 +263,74 @@ class Graph {
         e.stopPropagation();
         const willOpen = !row.classList.contains('menu-open');
         this._closeAllSeriesMenus();
-        if (willOpen) row.classList.add('menu-open');
+        if (willOpen) {
+          row.classList.add('menu-open');
+          this._positionSeriesMenu(row, menu);
+        }
       });
 
       const menu = document.createElement('div');
       menu.className = 'y-style-menu';
+      const addSectionDivider = () => {
+        const divider = document.createElement('div');
+        divider.className = 'y-style-divider';
+        menu.appendChild(divider);
+      };
+
+      const lineLabel = document.createElement('div');
+      lineLabel.className = 'y-style-section-label';
+      lineLabel.textContent = 'Ligne';
+      menu.appendChild(lineLabel);
       [
-        { value: 'points', label: 'Points' },
+        { value: 'none', label: 'Pas de ligne' },
         { value: 'line', label: 'Ligne' },
-        { value: 'line_points', label: 'Ligne + points' }
+        { value: 'dotted', label: 'Ligne pointillée' }
       ].forEach(option => {
         const item = document.createElement('button');
         item.type = 'button';
-        item.className = 'y-style-item' + (style === option.value ? ' selected' : '');
-        item.dataset.style = option.value;
+        item.className = 'y-style-item' + (lineStyle === option.value ? ' selected' : '');
+        item.dataset.group = 'line';
+        item.dataset.value = option.value;
         item.textContent = option.label;
         item.addEventListener('click', (e) => {
           e.stopPropagation();
-          this._setSeriesStyle(col.id, option.value);
-          menu.querySelectorAll('.y-style-item').forEach(btn => {
-            btn.classList.toggle('selected', btn.dataset.style === option.value);
+          this._setSeriesLineStyle(col.id, option.value);
+          menu.querySelectorAll('.y-style-item[data-group="line"]').forEach(btn => {
+            btn.classList.toggle('selected', btn.dataset.value === option.value);
           });
-          this._closeAllSeriesMenus();
           this._renderChart();
         });
         menu.appendChild(item);
       });
 
-      const divider = document.createElement('div');
-      divider.className = 'y-style-divider';
-      menu.appendChild(divider);
+      addSectionDivider();
+
+      const pointLabel = document.createElement('div');
+      pointLabel.className = 'y-style-section-label';
+      pointLabel.textContent = 'Points';
+      menu.appendChild(pointLabel);
+      [
+        { value: 'dots', label: 'Points' },
+        { value: 'cross', label: 'Croix' }
+      ].forEach(option => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'y-style-item' + (pointStyle === option.value ? ' selected' : '');
+        item.dataset.group = 'point';
+        item.dataset.value = option.value;
+        item.textContent = option.label;
+        item.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._setSeriesPointStyle(col.id, option.value);
+          menu.querySelectorAll('.y-style-item[data-group="point"]').forEach(btn => {
+            btn.classList.toggle('selected', btn.dataset.value === option.value);
+          });
+          this._renderChart();
+        });
+        menu.appendChild(item);
+      });
+
+      addSectionDivider();
 
       const colorLabel = document.createElement('div');
       colorLabel.className = 'y-style-section-label';
@@ -236,16 +376,28 @@ class Graph {
       .map(p => p.dataset.colId);
   }
 
-  _getSeriesStyle(colId) {
-    const style = this._yStyleByColId[colId];
-    return (style === 'line' || style === 'line_points') ? style : 'points';
+  _getSeriesLineStyle(colId) {
+    const style = this._yLineStyleByColId[colId];
+    return (style === 'line' || style === 'dotted') ? style : 'none';
   }
 
-  _setSeriesStyle(colId, style) {
-    if (style === 'line' || style === 'line_points') {
-      this._yStyleByColId[colId] = style;
+  _setSeriesLineStyle(colId, style) {
+    if (style === 'line' || style === 'dotted') {
+      this._yLineStyleByColId[colId] = style;
     } else {
-      delete this._yStyleByColId[colId];
+      delete this._yLineStyleByColId[colId];
+    }
+  }
+
+  _getSeriesPointStyle(colId) {
+    return this._yPointStyleByColId[colId] === 'cross' ? 'cross' : 'dots';
+  }
+
+  _setSeriesPointStyle(colId, style) {
+    if (style === 'cross') {
+      this._yPointStyleByColId[colId] = style;
+    } else {
+      delete this._yPointStyleByColId[colId];
     }
   }
 
@@ -265,13 +417,40 @@ class Graph {
   }
 
   _closeAllSeriesMenus() {
-    this._yList.querySelectorAll('.y-pill-row.menu-open').forEach(row => row.classList.remove('menu-open'));
+    this._yList.querySelectorAll('.y-pill-row.menu-open, .y-pill-row.menu-up').forEach(row => {
+      row.classList.remove('menu-open', 'menu-up');
+      const menu = row.querySelector('.y-style-menu');
+      if (menu) menu.style.maxHeight = '';
+    });
+  }
+
+  _positionSeriesMenu(row, menu) {
+    if (!row || !menu) return;
+    const container = this._yPanel || this._yList;
+    if (!container) return;
+
+    row.classList.remove('menu-up');
+    menu.style.maxHeight = '';
+
+    const gap = 4;
+    const containerRect = container.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const menuHeight = menu.getBoundingClientRect().height || 0;
+    const spaceBelow = containerRect.bottom - rowRect.bottom - gap;
+    const spaceAbove = rowRect.top - containerRect.top - gap;
+    const openUp = menuHeight > spaceBelow && spaceAbove > spaceBelow;
+    row.classList.toggle('menu-up', openUp);
+
+    const available = Math.max(60, Math.floor(openUp ? spaceAbove : spaceBelow));
+    menu.style.maxHeight = `${Math.min(380, available)}px`;
   }
 
   loadFromData(graphData) {
     this._axisZoom = { x: null, y: null };
     this._axisDrag = null;
+    this._pointerState = null;
     document.body.style.cursor = '';
+    this._setCursorMode(graphData && graphData.cursorMode === 'pointer' ? 'pointer' : 'normal');
     if (graphData.originX !== undefined && graphData.originX !== null) {
       this._originXInput.value = String(graphData.originX);
     }
@@ -279,10 +458,28 @@ class Graph {
       this._originYInput.value = String(graphData.originY);
     }
     if (graphData.xColumn) this._xSelect.value = graphData.xColumn;
-    this._yStyleByColId = {};
+    this._yLineStyleByColId = {};
+    this._yPointStyleByColId = {};
+    if (graphData.yLineStyles && typeof graphData.yLineStyles === 'object') {
+      Object.entries(graphData.yLineStyles).forEach(([colId, style]) => {
+        if (style === 'line' || style === 'dotted') this._yLineStyleByColId[colId] = style;
+      });
+    }
+    if (graphData.yPointStyles && typeof graphData.yPointStyles === 'object') {
+      Object.entries(graphData.yPointStyles).forEach(([colId, style]) => {
+        if (style === 'cross') this._yPointStyleByColId[colId] = style;
+      });
+    }
     if (graphData.yStyles && typeof graphData.yStyles === 'object') {
       Object.entries(graphData.yStyles).forEach(([colId, style]) => {
-        if (style === 'line' || style === 'line_points') this._yStyleByColId[colId] = style;
+        if (style === 'line' || style === 'line_points') {
+          this._yLineStyleByColId[colId] = 'line';
+          return;
+        }
+        if (style && typeof style === 'object') {
+          if (style.line === 'line' || style.line === 'dotted') this._yLineStyleByColId[colId] = style.line;
+          if (style.point === 'cross') this._yPointStyleByColId[colId] = 'cross';
+        }
       });
     }
     this._yColorByColId = {};
@@ -303,12 +500,28 @@ class Graph {
       this._regressionSelect.value = graphData.regressionType;
     }
     this._regressionCoeffs = null;
+    this._renderChart();
   }
 
   toData() {
     const yStyles = {};
-    Object.entries(this._yStyleByColId).forEach(([colId, style]) => {
-      if (style && style !== 'points') yStyles[colId] = style;
+    Object.keys({ ...this._yLineStyleByColId, ...this._yPointStyleByColId }).forEach(colId => {
+      const line = this._getSeriesLineStyle(colId);
+      const point = this._getSeriesPointStyle(colId);
+      if (line === 'none' && point === 'dots') return;
+      if (line === 'line' && point === 'dots') {
+        yStyles[colId] = 'line_points';
+      } else {
+        yStyles[colId] = { line, point };
+      }
+    });
+    const yLineStyles = {};
+    Object.entries(this._yLineStyleByColId).forEach(([colId, style]) => {
+      if (style === 'line' || style === 'dotted') yLineStyles[colId] = style;
+    });
+    const yPointStyles = {};
+    Object.entries(this._yPointStyleByColId).forEach(([colId, style]) => {
+      if (style === 'cross') yPointStyles[colId] = style;
     });
     const yColors = {};
     Object.entries(this._yColorByColId).forEach(([colId, color]) => {
@@ -318,8 +531,11 @@ class Graph {
       xColumn: this._xSelect.value || '',
       originX: this._getAxisOriginValue('x', 0),
       originY: this._getAxisOriginValue('y', 0),
+      cursorMode: this._cursorMode,
       yColumns: this._getSelectedYIds(),
       regressionType: this._regressionType,
+      yLineStyles,
+      yPointStyles,
       yStyles,
       yColors
     };
@@ -347,11 +563,13 @@ class Graph {
     this._renderChart();
   }
 
-  _onAxesChanged() {
+  _onAxesChanged({ xChanged = false } = {}) {
     this._axisZoom = { x: null, y: null };
     this._closeAllSeriesMenus();
+    this._pointerState = null;
     this._regressionCoeffs = null;
     this._regressionResult.classList.remove('visible');
+    if (xChanged) this.refreshColumns();
     this._renderChart();
   }
 
@@ -361,7 +579,7 @@ class Graph {
   }
 
   /**
-   * Returns array of { colId, label, style, color, points } for selected Y columns.
+   * Returns array of { colId, label, lineStyle, pointStyle, color, points } for selected Y columns.
    * points = [{ x, y }] filtered to rows where both X and Y are valid numbers.
    */
   _getXYData() {
@@ -387,7 +605,8 @@ class Graph {
       return {
         colId: yId,
         label,
-        style: this._getSeriesStyle(yId),
+        lineStyle: this._getSeriesLineStyle(yId),
+        pointStyle: this._getSeriesPointStyle(yId),
         color: this._getSeriesColor(yId, fallbackIndex),
         points
       };
@@ -426,20 +645,29 @@ class Graph {
 
     if (!allSeries || allSeries.length === 0) {
       this._placeholder.classList.remove('hidden');
+      this._pointerSeries = [];
+      this._pointerState = null;
+      this._pointerXAxisLabel = this._getAxisLabels().xLabel || 'X';
       if (this._chart) { this._chart.destroy(); this._chart = null; }
       return;
     }
 
     this._placeholder.classList.add('hidden');
+    this._pointerState = null;
 
     const { xLabel } = this._getAxisLabels();
+    this._pointerXAxisLabel = xLabel || 'X';
     const datasets = [];
+    this._pointerSeries = allSeries.map(({ label, color, points }) => ({
+      label,
+      color,
+      points: [...points].sort((a, b) => a.x - b.x)
+    }));
 
-    // 1. Dataset per Y column (style configurable: points, line, line+points)
-    allSeries.forEach(({ label, points, style, color }) => {
-      const sorted = [...points].sort((a, b) => a.x - b.x);
-      const isLine = style === 'line' || style === 'line_points';
-      const showPoints = style !== 'line';
+    // 1. Dataset per Y column (line + point styles configurable)
+    allSeries.forEach(({ label, points, lineStyle, pointStyle, color }, idx) => {
+      const sorted = this._pointerSeries[idx] ? this._pointerSeries[idx].points : [...points].sort((a, b) => a.x - b.x);
+      const isLine = lineStyle === 'line' || lineStyle === 'dotted';
       datasets.push({
         label,
         data: sorted,
@@ -447,8 +675,11 @@ class Graph {
         backgroundColor: color,
         borderColor: color,
         borderWidth: isLine ? 2 : 1.5,
-        pointRadius: showPoints ? 5 : 0,
-        pointHoverRadius: showPoints ? 7 : 0,
+        borderDash: lineStyle === 'dotted' ? [7, 5] : [],
+        pointRadius: 5,
+        pointHoverRadius: 7,
+        pointStyle: pointStyle === 'cross' ? 'cross' : 'circle',
+        pointBorderWidth: pointStyle === 'cross' ? 2.2 : 1.2,
         showLine: isLine,
         tension: 0.15,
         order: 3
@@ -511,6 +742,10 @@ class Graph {
       this._chart = new Chart(this._canvas, {
         type: 'scatter',
         data: { datasets },
+        plugins: [{
+          id: 'cursor-pointer-overlay',
+          afterDatasetsDraw: (chart) => this._drawPointerOverlay(chart)
+        }],
         options: {
           responsive: true,
           maintainAspectRatio: false,
@@ -534,6 +769,113 @@ class Graph {
     const abs = Math.abs(v);
     if (abs >= 1e5 || (abs < 1e-3 && v !== 0)) return v.toExponential(3);
     return parseFloat(v.toPrecision(6)).toString();
+  }
+
+  _updatePointerStateFromMouseEvent(e) {
+    if (this._cursorMode !== 'pointer' || !this._chart || !this._chart.chartArea || !this._chart.scales || !this._chart.scales.x) {
+      this._pointerState = null;
+      return;
+    }
+    const rect = this._canvas.getBoundingClientRect();
+    const xPx = e.clientX - rect.left;
+    const yPx = e.clientY - rect.top;
+    const area = this._chart.chartArea;
+    const inPlot = xPx >= area.left && xPx <= area.right && yPx >= area.top && yPx <= area.bottom;
+    if (!inPlot) {
+      this._pointerState = null;
+      return;
+    }
+
+    const xValue = this._chart.scales.x.getValueForPixel(xPx);
+    const values = this._pointerSeries.map(series => ({
+      label: series.label,
+      color: series.color,
+      y: this._interpolateYAtX(series.points, xValue)
+    }));
+    this._pointerState = { xPx, yPx, xValue, values };
+  }
+
+  _interpolateYAtX(points, x) {
+    if (!Array.isArray(points) || points.length === 0 || !Number.isFinite(x)) return null;
+    if (points.length === 1) return Number.isFinite(points[0].y) ? points[0].y : null;
+    if (x < points[0].x || x > points[points.length - 1].x) return null;
+
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[i];
+      const p1 = points[i + 1];
+      if (!p0 || !p1) continue;
+      if (!Number.isFinite(p0.x) || !Number.isFinite(p1.x) || !Number.isFinite(p0.y) || !Number.isFinite(p1.y)) continue;
+      if (x < p0.x || x > p1.x) continue;
+      if (x === p0.x) return p0.y;
+      if (x === p1.x) return p1.y;
+      const dx = p1.x - p0.x;
+      if (!Number.isFinite(dx) || Math.abs(dx) < 1e-12) return p0.y;
+      const t = (x - p0.x) / dx;
+      return p0.y + t * (p1.y - p0.y);
+    }
+    return null;
+  }
+
+  _drawPointerOverlay(chart) {
+    if (this._cursorMode !== 'pointer' || !this._pointerState || !chart || !chart.chartArea) return;
+    const area = chart.chartArea;
+    const ctx = chart.ctx;
+    const x = Math.max(area.left, Math.min(area.right, this._pointerState.xPx));
+    const y = Math.max(area.top, Math.min(area.bottom, this._pointerState.yPx));
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(37,99,235,0.65)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(x, area.top);
+    ctx.lineTo(x, area.bottom);
+    ctx.moveTo(area.left, y);
+    ctx.lineTo(area.right, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    const rows = [
+      { text: `${this._pointerXAxisLabel}: ${this._fmt(this._pointerState.xValue)}`, color: '#f8fafc' },
+      ...this._pointerState.values.map(v => ({
+        text: `${v.label}: ${v.y === null ? '—' : this._fmt(v.y)}`,
+        color: v.color || '#cbd5e1'
+      }))
+    ];
+    ctx.font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    const paddingX = 8;
+    const paddingY = 7;
+    const lineH = 16;
+    const dot = 7;
+    const maxTextW = rows.reduce((max, r) => Math.max(max, ctx.measureText(r.text).width), 0);
+    const boxW = Math.ceil(maxTextW + paddingX * 2 + dot + 6);
+    const boxH = Math.ceil(paddingY * 2 + rows.length * lineH);
+
+    let boxX = x + 12;
+    if (boxX + boxW > area.right - 2) boxX = x - boxW - 12;
+    boxX = Math.max(area.left + 2, boxX);
+    let boxY = y + 12;
+    if (boxY + boxH > area.bottom - 2) boxY = y - boxH - 12;
+    boxY = Math.max(area.top + 2, boxY);
+
+    ctx.fillStyle = 'rgba(15,23,42,0.88)';
+    ctx.strokeStyle = 'rgba(148,163,184,0.45)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.rect(boxX, boxY, boxW, boxH);
+    ctx.fill();
+    ctx.stroke();
+
+    rows.forEach((row, idx) => {
+      const yy = boxY + paddingY + idx * lineH + 11;
+      ctx.fillStyle = row.color;
+      ctx.beginPath();
+      ctx.arc(boxX + paddingX + dot / 2, yy - 3, dot / 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillText(row.text, boxX + paddingX + dot + 6, yy);
+    });
+    ctx.restore();
   }
 
   _getAxisOriginValue(mode, fallbackValue = 0) {
@@ -561,6 +903,7 @@ class Graph {
       startMin: scale.min,
       startMax: scale.max
     };
+    this._pointerState = null;
     const cursor = mode === 'x' ? 'ew-resize' : 'ns-resize';
     this._canvas.style.cursor = cursor;
     document.body.style.cursor = cursor;
@@ -568,11 +911,24 @@ class Graph {
 
   _onCanvasMouseMove(e) {
     if (this._axisDrag) return;
+    if (this._cursorMode === 'pointer') {
+      this._canvas.style.cursor = 'crosshair';
+      this._updatePointerStateFromMouseEvent(e);
+      if (this._chart) this._chart.draw();
+      return;
+    }
+    this._pointerState = null;
     this._updateAxisCursor(e);
   }
 
   _onCanvasMouseLeave() {
     if (this._axisDrag) return;
+    this._pointerState = null;
+    if (this._chart) this._chart.draw();
+    if (this._cursorMode === 'pointer') {
+      this._canvas.style.cursor = 'default';
+      return;
+    }
     this._canvas.style.cursor = 'default';
   }
 
@@ -612,6 +968,10 @@ class Graph {
     if (!this._axisDrag) return;
     this._axisDrag = null;
     document.body.style.cursor = '';
+    if (this._cursorMode === 'pointer') {
+      this._canvas.style.cursor = 'crosshair';
+      return;
+    }
     this._updateAxisCursor(e);
   }
 

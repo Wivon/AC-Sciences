@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; media-src 'self' blob:;" />
+        content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; media-src 'self' blob: file:;" />
   <title>Labo Claveille</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -13,14 +13,16 @@
     <!-- Header -->
     <header id="app-header">
       <div id="header-left">
-        <img src="./graphics/ac-logo.jpg" alt="Logo Albert Claveille" style="height: 30px; margin-right: 10px;">
+        <button id="claveille-logo-btn" class="logo-btn" type="button" aria-label="À propos de Labo Claveille">
+          <img src="./graphics/ac-logo.jpg" alt="Logo Albert Claveille" class="header-logo-image">
+        </button>
         <span id="app-title">Labo Claveille</span>
         <span id="project-name-display">— Sans Nom</span>
       </div>
       <div id="tab-bar">
+        <button class="tab-btn" data-tab="video" title="Click Click Point Point">Pointage</button>
         <button class="tab-btn active" data-tab="sheet">Tableur</button>
         <button class="tab-btn" data-tab="graph">Graph</button>
-        <button class="tab-btn" data-tab="video">Vidéo</button>
       </div>
       <div id="header-right">
         <button id="open-btn" class="header-btn" title="Ouvrir (Ctrl+O)">Ouvrir</button>
@@ -154,10 +156,16 @@
           <div class="sidebar-section">
             <h3>Pointage</h3>
             <label>Frame de départ
-              <input id="video-start-frame-input" type="number" min="0" value="0" />
+              <input id="video-start-frame-input" type="range" min="0" max="0" step="1" value="0" />
             </label>
-            <button id="video-go-start-btn" class="sidebar-btn blue">4. Aller à la frame de départ</button>
-            <button id="video-track-btn" class="sidebar-btn amber">5. Démarrer le pointage</button>
+            <div id="video-start-frame-value" class="video-small">Frame de départ: 0</div>
+            <div class="video-frame-controls" role="group" aria-label="Navigation des frames">
+              <button id="video-frame-first-btn" class="video-frame-btn" type="button" title="Aller au début">|&lt;</button>
+              <button id="video-frame-prev-btn" class="video-frame-btn" type="button" title="Frame précédente">&lt;</button>
+              <button id="video-frame-next-btn" class="video-frame-btn" type="button" title="Frame suivante">&gt;</button>
+              <button id="video-frame-last-btn" class="video-frame-btn" type="button" title="Aller à la fin">&gt;|</button>
+            </div>
+            <button id="video-track-btn" class="sidebar-btn amber">4. Démarrer le pointage</button>
             <button id="video-undo-btn" class="sidebar-btn">Annuler le dernier point</button>
             <button id="video-reset-btn" class="sidebar-btn">Réinitialiser le pointage</button>
             <div id="video-track-status" class="video-small">Points: 0</div>
@@ -176,6 +184,16 @@
           <video id="video-element" class="hidden" preload="metadata" playsinline muted></video>
         </main>
       </div>
+    </div>
+  </div>
+
+  <div id="about-popup" class="hidden" role="dialog" aria-modal="true" aria-labelledby="about-popup-title">
+    <div id="about-popup-backdrop"></div>
+    <div id="about-popup-card">
+      <div id="about-popup-title">Labo Claveille</div>
+      <div id="about-popup-subtitle">Lilian Brousse (Promo de Tle 2025-26)</div>
+      <div id="about-popup-subtitle">Classe TG2</div>
+      <div id="about-popup-subtitle">Logiciel open-source (<a href="https://github.com/Wivon/AC-Sciences" target="_blank">repo GitHub</a>)</div>
     </div>
   </div>
 

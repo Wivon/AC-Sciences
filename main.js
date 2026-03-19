@@ -1,6 +1,15 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { spawn } = require('child_process');
+const { pathToFileURL } = require('url');
+
+let ffmpegPath = null;
+try {
+  ffmpegPath = require('ffmpeg-static');
+} catch (_e) {
+  ffmpegPath = null;
+}
 
 let mainWindow = null;
 let currentProjectName = 'Untitled';
@@ -173,6 +182,66 @@ ipcMain.handle('show-save-dialog', async (event, options) => {
 ipcMain.handle('show-open-dialog', async (event, options) => {
   const result = await dialog.showOpenDialog(mainWindow, options);
   return result;
+});
+
+ipcMain.handle('transcode-video', async (_event, { inputPath }) => {
+  try {
+    if (!inputPath || typeof inputPath !== 'string') {
+      return { success: false, error: 'invalid-input-path' };
+    }
+    if (!fs.existsSync(inputPath)) {
+      return { success: false, error: 'input-file-not-found' };
+    }
+    if (!ffmpegPath) {
+      return { success: false, error: 'ffmpeg-unavailable' };
+    }
+
+    const outName = `acsciences-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`;
+    const outputPath = path.join(app.getPath('temp'), outName);
+    const args = [
+      '-y',
+      '-hide_banner',
+      '-loglevel', 'error',
+      '-i', inputPath,
+      '-an',
+      '-c:v', 'libx264',
+      '-pix_fmt', 'yuv420p',
+      '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+      '-movflags', '+faststart',
+      outputPath
+    ];
+
+    const proc = spawn(ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', d => { stdout += String(d); });
+    proc.stderr.on('data', d => { stderr += String(d); });
+
+    const code = await new Promise((resolve, reject) => {
+      proc.on('error', reject);
+      proc.on('close', resolve);
+    });
+
+    if (code !== 0 || !fs.existsSync(outputPath)) {
+      return {
+        success: false,
+        error: 'ffmpeg-failed',
+        code,
+        stdout: stdout.trim(),
+        stderr: stderr.trim()
+      };
+    }
+
+    return {
+      success: true,
+      outputPath,
+      outputUrl: pathToFileURL(outputPath).toString(),
+      stdout: stdout.trim(),
+      stderr: stderr.trim()
+    };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
 });
 
 ipcMain.on('confirm-close', () => {

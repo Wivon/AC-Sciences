@@ -712,7 +712,7 @@ class Sheet {
 
     // ColName[N] — specific row reference, 1-indexed (e.g. Time[3], t[1])
     // Run BEFORE _normalizeKeywords so original column-name case is preserved.
-    js = js.replace(/([A-Za-z][A-Za-z0-9_]*)\[(\d+)\]/g, (_, colName, rowStr) => {
+    js = js.replace(/([A-Za-z][A-Za-z0-9_']*)\[(\d+)\]/g, (_, colName, rowStr) => {
       const targetRow = parseInt(rowStr, 10) - 1; // 1-indexed → 0-indexed
       if (targetRow < 0 || targetRow >= this._rowCount) return 'NaN';
       const col = this._findColumnByName(colName);
@@ -726,7 +726,7 @@ class Sheet {
     // Replace aggregate functions: SUM([col]), AVG([col]), MIN([col]), MAX([col]), COUNT([col])
     const aggregateFns = ['SUM', 'AVG', 'MIN', 'MAX', 'COUNT'];
     aggregateFns.forEach(fn => {
-      const regex = new RegExp(`${fn}\\(\\[([^\\]]+)\\]\\)`, 'g');
+      const regex = new RegExp(`${fn}\\s*\\(\\s*\\[([^\\]]+)\\]\\s*\\)`, 'g');
       js = js.replace(regex, (_, colName) => {
         const vals = this._getColumnNumericValues(colName);
         switch (fn) {
@@ -741,7 +741,7 @@ class Sheet {
     });
 
     // Replace PREV([ColName]) → value at row-1
-    js = js.replace(/PREV\(\[([^\]]+)\]\)/g, (_, colName) => {
+    js = js.replace(/PREV\s*\(\s*\[([^\]]+)\]\s*\)/g, (_, colName) => {
       if (row === 0) return 'NaN';
       const col = this._findColumnByName(colName);
       if (!col) return 'NaN';
@@ -764,7 +764,7 @@ class Sheet {
     const mathFns = ['SQRT', 'ABS', 'LN', 'LOG', 'SIN', 'COS', 'TAN', 'EXP'];
     mathFns.forEach(fn => {
       const jsFn = fn === 'LN' ? 'Math.log' : fn === 'LOG' ? 'Math.log10' : `Math.${fn.toLowerCase()}`;
-      js = js.replace(new RegExp(`\\b${fn}\\(`, 'g'), `${jsFn}(`);
+      js = js.replace(new RegExp(`\\b${fn}\\s*\\(`, 'g'), `${jsFn}(`);
     });
 
     // Exponentiation
@@ -947,7 +947,7 @@ class Sheet {
   _adjustFormula(formula, rowOffset) {
     if (rowOffset === 0) return formula;
     if (formula.startsWith('=')) {
-      return '=' + formula.slice(1).replace(/([A-Za-z][A-Za-z0-9_]*)\[(\d+)\]/g, (_, colName, rowStr) => {
+      return '=' + formula.slice(1).replace(/([A-Za-z][A-Za-z0-9_']*)\[(\d+)\]/g, (_, colName, rowStr) => {
         const newRow = Math.max(1, parseInt(rowStr, 10) + rowOffset);
         return `${colName}[${newRow}]`;
       });
