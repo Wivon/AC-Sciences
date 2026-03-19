@@ -117,6 +117,85 @@ class Sheet {
     });
   }
 
+  /**
+   * Replace values of one or more columns by name.
+   * - Creates missing columns.
+   * - Expands row count to fit provided data.
+   * - Clears remaining cells in targeted columns.
+   * @param {Object<string, Array<number|string|null|undefined>>} valuesByName
+   * @param {Object<string, string>} unitsByName
+   */
+  setColumnsByName(valuesByName, unitsByName = {}) {
+    if (!valuesByName || typeof valuesByName !== 'object') return;
+
+    const columnNames = Object.keys(valuesByName).filter(name => String(name).trim() !== '');
+    if (columnNames.length === 0) return;
+
+    let changed = false;
+    let structureChanged = false;
+
+    const maxLen = columnNames.reduce((m, name) => {
+      const arr = Array.isArray(valuesByName[name]) ? valuesByName[name] : [];
+      return Math.max(m, arr.length);
+    }, 0);
+
+    if (maxLen > this._rowCount) {
+      const oldRowCount = this._rowCount;
+      this._rowCount = maxLen;
+      this._columns.forEach(col => {
+        while (col.cells.length < this._rowCount) col.cells.push('');
+      });
+      structureChanged = this._rowCount !== oldRowCount;
+    }
+
+    columnNames.forEach(rawName => {
+      const name = String(rawName).trim();
+      if (!name) return;
+      let col = this._findColumnByName(name);
+      if (!col) {
+        col = {
+          id: 'col_' + Math.random().toString(36).slice(2, 9),
+          name,
+          unit: '',
+          cells: Array(this._rowCount).fill('')
+        };
+        this._columns.push(col);
+        structureChanged = true;
+      } else {
+        while (col.cells.length < this._rowCount) col.cells.push('');
+      }
+
+      const nextUnit = Object.prototype.hasOwnProperty.call(unitsByName, name)
+        ? String(unitsByName[name] || '')
+        : col.unit;
+      if (nextUnit !== col.unit) {
+        col.unit = nextUnit;
+        changed = true;
+      }
+
+      const arr = Array.isArray(valuesByName[rawName]) ? valuesByName[rawName] : [];
+      for (let r = 0; r < this._rowCount; r++) {
+        const v = arr[r];
+        let cell = '';
+        if (v !== null && v !== undefined && v !== '') {
+          if (typeof v === 'number') {
+            cell = isFinite(v) ? String(parseFloat(v.toPrecision(12))) : '';
+          } else {
+            cell = String(v);
+          }
+        }
+        if (col.cells[r] !== cell) {
+          col.cells[r] = cell;
+          changed = true;
+        }
+      }
+    });
+
+    if (!changed && !structureChanged) return;
+    this._render();
+    this._emitChange();
+  }
+
   addColumn() {
     const id = 'col_' + Math.random().toString(36).slice(2, 9);
     const col = { id, name: 'Column', unit: '', cells: Array(this._rowCount).fill('') };

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';" />
+        content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; media-src 'self' blob:;" />
   <title>Labo Claveille</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -20,6 +20,7 @@
       <div id="tab-bar">
         <button class="tab-btn active" data-tab="sheet">Tableur</button>
         <button class="tab-btn" data-tab="graph">Graph</button>
+        <button class="tab-btn" data-tab="video">Vidéo</button>
       </div>
       <div id="header-right">
         <button id="open-btn" class="header-btn" title="Ouvrir (Ctrl+O)">Ouvrir</button>
@@ -65,6 +66,14 @@
             <label>Axe X
               <select id="x-axis-select"><option value="">— select —</option></select>
             </label>
+            <div class="origin-grid">
+              <label>Origine X
+                <input id="origin-x-input" type="number" step="any" value="0" />
+              </label>
+              <label>Origine Y
+                <input id="origin-y-input" type="number" step="any" value="0" />
+              </label>
+            </div>
           </div>
 
           <div class="sidebar-section">
@@ -112,11 +121,68 @@
         </aside>
       </div>
     </div>
+
+    <!-- Tab: Video -->
+    <div id="tab-video" class="tab-content hidden">
+      <div id="video-layout">
+        <aside id="video-sidebar">
+          <div class="sidebar-section">
+            <h3>Importer</h3>
+            <label>Fichier vidéo
+              <input id="video-file-input" type="file" accept=".mp4,.avi,video/mp4,video/x-msvideo" />
+            </label>
+            <div id="video-meta" class="video-meta">
+              <div>Fichier: —</div>
+              <div>Résolution: —</div>
+              <div>Durée: —</div>
+              <div>FPS: —</div>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <h3>Calibration</h3>
+            <button id="video-set-origin-btn" class="sidebar-btn blue">1. Cliquer pour définir l'origine</button>
+            <div id="video-origin-display" class="video-small">Origine: —</div>
+
+            <button id="video-set-scale-btn" class="sidebar-btn blue">2. Glisser pour définir l'échelle</button>
+            <label>Distance réelle
+              <input id="video-scale-input" type="text" value="1 m" placeholder="ex: 1 m ou 25 cm" />
+            </label>
+            <div id="video-scale-display" class="video-small">Échelle: —</div>
+          </div>
+
+          <div class="sidebar-section">
+            <h3>Pointage</h3>
+            <label>Frame de départ
+              <input id="video-start-frame-input" type="number" min="0" value="0" />
+            </label>
+            <button id="video-go-start-btn" class="sidebar-btn blue">4. Aller à la frame de départ</button>
+            <button id="video-track-btn" class="sidebar-btn amber">5. Démarrer le pointage</button>
+            <button id="video-undo-btn" class="sidebar-btn">Annuler le dernier point</button>
+            <button id="video-reset-btn" class="sidebar-btn">Réinitialiser le pointage</button>
+            <div id="video-track-status" class="video-small">Points: 0</div>
+          </div>
+        </aside>
+
+        <main id="video-main">
+          <div id="video-canvas-wrap">
+            <canvas id="video-canvas"></canvas>
+            <div id="video-placeholder">Importez une vidéo (.avi ou .mp4) pour commencer.</div>
+          </div>
+          <div id="video-hud">
+            <span id="video-current-frame">Frame: —</span>
+            <span id="video-current-time">t: —</span>
+          </div>
+          <video id="video-element" class="hidden" preload="metadata" playsinline muted></video>
+        </main>
+      </div>
+    </div>
   </div>
 
   <script src="../node_modules/chart.js/dist/chart.umd.js"></script>
   <script src="sheet.js"></script>
   <script src="graph.js"></script>
+  <script src="video.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

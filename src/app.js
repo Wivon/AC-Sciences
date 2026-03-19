@@ -23,10 +23,11 @@
   const saveBtn = document.getElementById('save-btn');
   const openBtn = document.getElementById('open-btn');
 
-  // ─── Create Sheet & Graph ────────────────────────────────────────────────────
+  // ─── Create Sheet, Graph & Video ─────────────────────────────────────────────
 
   const sheet = new Sheet(null, formulaInput, formulaCellRef);
   const graph = new Graph(sheet);
+  const video = new VideoTracker(sheet);
 
   // ─── Project Management ──────────────────────────────────────────────────────
 
@@ -54,7 +55,8 @@
         yColumn: '',
         showDerivative: false,
         regressionType: 'none'
-      }
+      },
+      video: {}
     };
 
     applyProject();
@@ -65,6 +67,7 @@
     sheet.loadFromData(projectData.sheet);
     graph.refreshColumns();
     graph.loadFromData(projectData.graph);
+    video.loadFromData(projectData.video || {});
     updateProjectNameDisplay(projectData.name);
   }
 
@@ -72,6 +75,7 @@
     projectData.modified = new Date().toISOString();
     projectData.sheet = sheet.toData();
     projectData.graph = graph.toData();
+    projectData.video = video.toData();
     return projectData;
   }
 
@@ -219,6 +223,10 @@
       setTimeout(() => {
         graph._renderChart();
       }, 50);
+    } else if (tabName === 'video') {
+      setTimeout(() => {
+        video.onShown();
+      }, 50);
     }
   }
 
@@ -257,6 +265,10 @@
   // ─── Sheet Change Listener ────────────────────────────────────────────────────
 
   document.addEventListener('sheet-data-changed', () => {
+    markDirty();
+  });
+
+  document.addEventListener('video-data-changed', () => {
     markDirty();
   });
 
