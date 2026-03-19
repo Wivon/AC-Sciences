@@ -24,6 +24,9 @@ class Sheet {
       }
     });
 
+    this._selectionRange = null; // { colIdxStart, rowStart, colIdxEnd, rowEnd }
+    this._dragSelect = null;     // active drag-select state
+
     this._tableEl = document.getElementById('sheet-table');
     this._headerRow = document.getElementById('sheet-header-row');
     this._unitRow = document.getElementById('sheet-unit-row');
@@ -31,12 +34,12 @@ class Sheet {
     this._formulaInput = formulaBarEl;
     this._formulaCellRef = formulaCellRefEl;
 
-    // Del key clears selected cell when not editing an input
+    // Del / Backspace clears selected cells when not editing an input
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Delete') {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
         const tag = document.activeElement && document.activeElement.tagName;
         if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
-          this._clearSelectedCell();
+          this._clearSelectedCells();
           e.preventDefault();
         }
       }
@@ -256,8 +259,8 @@ class Sheet {
       tr.appendChild(tdNum);
 
       // Data cells
-      this._columns.forEach(col => {
-        const td = this._createCell(col.id, r);
+      this._columns.forEach((col, colIdx) => {
+        const td = this._createCell(col.id, r, colIdx);
         tr.appendChild(td);
       });
 
@@ -265,7 +268,7 @@ class Sheet {
     }
   }
 
-  _createCell(colId, row) {
+  _createCell(colId, row, colIdx = 0) {
     const col = this._columns.find(c => c.id === colId);
     const rawVal = col ? col.cells[row] || '' : '';
     const isFormula = rawVal.startsWith('=');
@@ -274,6 +277,7 @@ class Sheet {
     td.className = 'data-cell' + (isFormula ? ' is-formula' : '');
     td.dataset.colId = colId;
     td.dataset.row = row;
+    td.dataset.colIdx = colIdx;
 
     const display = document.createElement('span');
     display.className = 'cell-display';
@@ -291,17 +295,20 @@ class Sheet {
       if (evaled === null || evaled === undefined) td.classList.add('error');
     }
 
-    // When in formula edit mode, clicking this cell inserts its column ref
+    // Mousedown: start drag-select or insert column ref in formula mode
     td.addEventListener('mousedown', (e) => {
-      if (this._activeFormulaInput && this._activeFormulaInput !== input) {
+      if (this._activeFormulaInput && this._activeFormulaInput !== input
+          && colId !== this._selectedColId) {
         e.preventDefault();
-        this._insertColumnRef(col.name, row); // absolute row ref: ColName[N]
+        this._insertColumnRef(col.name, row);
+        return;
+      }
+      if (!this._activeFormulaInput) {
+        e.preventDefault();
+        this._startDragSelect(colIdx, row, e.shiftKey);
       }
     });
 
-    td.addEventListener('click', () => {
-      if (!this._activeFormulaInput) this._selectCell(colId, row);
-    });
     td.addEventListener('dblclick', () => this._startEditing(colId, row, td, input));
 
     input.addEventListener('focus', () => {
@@ -340,8 +347,10 @@ class Sheet {
   // ─── Cell Selection & Editing ─────────────────────────────────────────────
 
   _selectCell(colId, row) {
-    const prev = this._tbody.querySelector('td.data-cell.selected');
-    if (prev) prev.classList.remove('selected');
+    this._clearSelectionHighlight();
+    this._selectionRange = null;
+
+    this._tbody.querySelectorAll('td.data-cell.selected').forEach(el => el.classList.remove('selected'));
 
     this._selectedColId = colId;
     this._selectedRow = row;
@@ -355,6 +364,74 @@ class Sheet {
     this._updateFormulaBar(colId, row);
   }
 
+  _startDragSelect(anchorColIdx, anchorRow, shift = false) {
+    if (shift && this._selectedColId !== null && this._selectedRow !== null) {
+      // Extend existing selection
+      const anchorCI = this._columns.findIndex(c => c.id === this._selectedColId);
+      this._selectionRange = {
+        colIdxStart: anchorCI, rowStart: this._selectedRow,
+        colIdxEnd: anchorColIdx, rowEnd: anchorRow
+      };
+      this._applySelectionHighlight();
+      return;
+    }
+
+    // Start fresh
+    const col = this._columns[anchorColIdx];
+    if (col) this._selectCell(col.id, anchorRow);
+
+    this._dragSelect = { anchorColIdx, anchorRow };
+
+    const onMove = (e) => {
+      if (!this._dragSelect) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const td = el && el.closest('td[data-col-idx][data-row]');
+      if (!td) return;
+      const ci = parseInt(td.dataset.colIdx, 10);
+      const r  = parseInt(td.dataset.row, 10);
+      const { anchorColIdx: aci, anchorRow: ar } = this._dragSelect;
+      if (ci === aci && r === ar) {
+        // Back to single cell
+        this._clearSelectionHighlight();
+        this._selectionRange = null;
+        return;
+      }
+      this._selectionRange = { colIdxStart: aci, rowStart: ar, colIdxEnd: ci, rowEnd: r };
+      this._applySelectionHighlight();
+    };
+
+    const onUp = () => {
+      this._dragSelect = null;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  _applySelectionHighlight() {
+    this._clearSelectionHighlight();
+    if (!this._selectionRange) return;
+    const { colIdxStart, rowStart, colIdxEnd, rowEnd } = this._selectionRange;
+    const colLo = Math.min(colIdxStart, colIdxEnd);
+    const colHi = Math.max(colIdxStart, colIdxEnd);
+    const rowLo = Math.min(rowStart, rowEnd);
+    const rowHi = Math.max(rowStart, rowEnd);
+    for (let ci = colLo; ci <= colHi; ci++) {
+      const col = this._columns[ci];
+      if (!col) continue;
+      for (let r = rowLo; r <= rowHi; r++) {
+        const td = this._getCellEl(col.id, r);
+        if (td) td.classList.add('in-selection');
+      }
+    }
+  }
+
+  _clearSelectionHighlight() {
+    this._tbody.querySelectorAll('td.in-selection').forEach(el => el.classList.remove('in-selection'));
+  }
+
   _startEditing(colId, row, td, input) {
     const col = this._columns.find(c => c.id === colId);
     if (!col) return;
@@ -363,7 +440,7 @@ class Sheet {
     if (td.classList.contains('is-formula')) {
       td.classList.add('editing');
       input.value = rawVal;
-      input.style.display = 'block';
+      input.style.display = ''; // let CSS handle it via .is-formula.editing
     }
 
     input.focus();
@@ -468,6 +545,7 @@ class Sheet {
     const input = td.querySelector('.cell-input');
 
     td.classList.remove('editing', 'error');
+    if (input) input.style.display = ''; // clear any stale inline style
 
     if (isFormula) {
       td.classList.add('is-formula');
@@ -736,16 +814,37 @@ class Sheet {
     this._fillDrag = null;
   }
 
-  /** Clear content of the currently selected cell */
-  _clearSelectedCell() {
-    if (this._selectedColId === null || this._selectedRow === null) return;
-    const col = this._columns.find(c => c.id === this._selectedColId);
-    if (!col || col.cells[this._selectedRow] === '') return;
-    col.cells[this._selectedRow] = '';
-    this._refreshCell(this._selectedColId, this._selectedRow);
-    this._reEvalDependents(this._selectedColId);
-    this._updateFormulaBar(this._selectedColId, this._selectedRow);
-    this._emitChange();
+  /** Clear content of selected cell(s) */
+  _clearSelectedCells() {
+    let changed = false;
+
+    if (this._selectionRange) {
+      const { colIdxStart, rowStart, colIdxEnd, rowEnd } = this._selectionRange;
+      const colLo = Math.min(colIdxStart, colIdxEnd);
+      const colHi = Math.max(colIdxStart, colIdxEnd);
+      const rowLo = Math.min(rowStart, rowEnd);
+      const rowHi = Math.max(rowStart, rowEnd);
+      for (let ci = colLo; ci <= colHi; ci++) {
+        const col = this._columns[ci];
+        if (!col) continue;
+        for (let r = rowLo; r <= rowHi; r++) {
+          if (col.cells[r] !== '') { col.cells[r] = ''; changed = true; }
+          this._refreshCell(col.id, r);
+        }
+        if (changed) this._reEvalDependents(col.id);
+      }
+    } else {
+      if (this._selectedColId === null || this._selectedRow === null) return;
+      const col = this._columns.find(c => c.id === this._selectedColId);
+      if (!col || col.cells[this._selectedRow] === '') return;
+      col.cells[this._selectedRow] = '';
+      this._refreshCell(this._selectedColId, this._selectedRow);
+      this._reEvalDependents(this._selectedColId);
+      this._updateFormulaBar(this._selectedColId, this._selectedRow);
+      changed = true;
+    }
+
+    if (changed) this._emitChange();
   }
 
   /**

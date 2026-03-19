@@ -451,6 +451,12 @@ td.data-cell.selected {
   z-index: 2;
 }
 
+td.data-cell.in-selection {
+  background: var(--primary-light);
+  outline: 1px solid var(--primary);
+  outline-offset: -1px;
+}
+
 .cell-input {
   display: block;
   width: 100%;
