@@ -10,6 +10,10 @@ class Graph {
     this._debounceTimer = null;
     this._regressionCoeffs = null;
     this._regressionType = 'none';
+    this._pendingSelectYId = null;
+    this._pendingRegressColId = null;
+    this._yStyleByColId = {};
+    this._yColorByColId = {};
 
     this._xSelect = document.getElementById('x-axis-select');
     this._yList   = document.getElementById('y-axis-list');
@@ -23,17 +27,22 @@ class Graph {
     this._canvas = document.getElementById('chart-canvas');
     this._placeholder = document.getElementById('chart-placeholder');
 
-    // Color palette for multiple Y series
-    this._palette = [
-      'rgba(37,99,235,0.75)',
-      'rgba(239,68,68,0.75)',
-      'rgba(16,185,129,0.75)',
-      'rgba(245,158,11,0.75)',
-      'rgba(139,92,246,0.75)',
-      'rgba(236,72,153,0.75)',
-      'rgba(20,184,166,0.75)',
-      'rgba(249,115,22,0.75)',
+    // Series colors (Google Calendar-like palette)
+    this._colorOptions = [
+      '#1a73e8',
+      '#039be5',
+      '#33b679',
+      '#0b8043',
+      '#f6bf26',
+      '#f4511e',
+      '#e67c73',
+      '#d50000',
+      '#8e24aa',
+      '#7986cb',
+      '#616161',
+      '#3c4043'
     ];
+    this._palette = this._colorOptions.slice(0, 8);
 
     this._fitBtn.addEventListener('click', () => this._fitCurve());
     this._deriveBtn.addEventListener('click', () => this._deriveColumn());
@@ -44,6 +53,15 @@ class Graph {
       this._regressionCoeffs = null;
       this._regressionResult.classList.remove('visible');
       this._renderChart();
+    });
+    document.addEventListener('click', (e) => {
+      const target = e.target;
+      if (!(target instanceof Element) || !target.closest('.y-pill-row')) {
+        this._closeAllSeriesMenus();
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this._closeAllSeriesMenus();
     });
 
     // Listen for sheet changes
@@ -59,6 +77,15 @@ class Graph {
     const cols = this._sheet.getColumns();
     const xVal = this._xSelect.value;
     const prevYIds = this._getSelectedYIds();
+    const selectedYIds = new Set(prevYIds);
+    const colIdSet = new Set(cols.map(c => c.id));
+    Object.keys(this._yStyleByColId).forEach(colId => {
+      if (!colIdSet.has(colId)) delete this._yStyleByColId[colId];
+    });
+    Object.keys(this._yColorByColId).forEach(colId => {
+      if (!colIdSet.has(colId)) delete this._yColorByColId[colId];
+    });
+    if (this._pendingSelectYId) selectedYIds.add(this._pendingSelectYId);
 
     const deriveVal   = this._deriveColSelect.value;
     const regressVal  = this._regressColSelect.value;
@@ -78,37 +105,175 @@ class Graph {
     });
     if (xVal       && cols.find(c => c.id === xVal))      this._xSelect.value = xVal;
     if (deriveVal  && cols.find(c => c.id === deriveVal))  this._deriveColSelect.value = deriveVal;
-    if (regressVal && cols.find(c => c.id === regressVal)) this._regressColSelect.value = regressVal;
+    if (this._pendingRegressColId && cols.find(c => c.id === this._pendingRegressColId)) {
+      this._regressColSelect.value = this._pendingRegressColId;
+    } else if (regressVal && cols.find(c => c.id === regressVal)) {
+      this._regressColSelect.value = regressVal;
+    }
 
-    // Rebuild Y pill toggles
+    // Rebuild Y list with style context menus
     this._yList.innerHTML = '';
-    cols.forEach(col => {
+    cols.forEach((col, colIdx) => {
       const label = col.unit ? `${col.name} (${col.unit})` : col.name;
-      const pill = document.createElement('button');
-      pill.type = 'button';
-      pill.className = 'y-pill' + (prevYIds.includes(col.id) ? ' selected' : '');
-      pill.dataset.colId = col.id;
-      pill.textContent = label;
-      pill.addEventListener('click', () => {
-        pill.classList.toggle('selected');
+      const style = this._getSeriesStyle(col.id);
+      const color = this._getSeriesColor(col.id, colIdx);
+
+      const row = document.createElement('div');
+      row.className = 'y-pill-row' + (selectedYIds.has(col.id) ? ' selected' : '');
+      row.dataset.colId = col.id;
+
+      const mainBtn = document.createElement('button');
+      mainBtn.type = 'button';
+      mainBtn.className = 'y-pill-main';
+      const colorDot = document.createElement('span');
+      colorDot.className = 'y-pill-color-dot';
+      colorDot.style.backgroundColor = color;
+      const labelText = document.createElement('span');
+      labelText.className = 'y-pill-label';
+      labelText.textContent = label;
+      mainBtn.appendChild(colorDot);
+      mainBtn.appendChild(labelText);
+      mainBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        row.classList.toggle('selected');
         this._onAxesChanged();
       });
-      this._yList.appendChild(pill);
+
+      const menuBtn = document.createElement('button');
+      menuBtn.type = 'button';
+      menuBtn.className = 'y-pill-menu-btn';
+      menuBtn.textContent = '▾';
+      menuBtn.title = 'Options de serie';
+      menuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const willOpen = !row.classList.contains('menu-open');
+        this._closeAllSeriesMenus();
+        if (willOpen) row.classList.add('menu-open');
+      });
+
+      const menu = document.createElement('div');
+      menu.className = 'y-style-menu';
+      [
+        { value: 'points', label: 'Points' },
+        { value: 'line', label: 'Ligne' },
+        { value: 'line_points', label: 'Ligne + points' }
+      ].forEach(option => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'y-style-item' + (style === option.value ? ' selected' : '');
+        item.dataset.style = option.value;
+        item.textContent = option.label;
+        item.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._setSeriesStyle(col.id, option.value);
+          menu.querySelectorAll('.y-style-item').forEach(btn => {
+            btn.classList.toggle('selected', btn.dataset.style === option.value);
+          });
+          this._closeAllSeriesMenus();
+          this._renderChart();
+        });
+        menu.appendChild(item);
+      });
+
+      const divider = document.createElement('div');
+      divider.className = 'y-style-divider';
+      menu.appendChild(divider);
+
+      const colorLabel = document.createElement('div');
+      colorLabel.className = 'y-style-section-label';
+      colorLabel.textContent = 'Couleur';
+      menu.appendChild(colorLabel);
+
+      const colorGrid = document.createElement('div');
+      colorGrid.className = 'y-color-grid';
+      this._colorOptions.forEach(optionColor => {
+        const colorBtn = document.createElement('button');
+        colorBtn.type = 'button';
+        colorBtn.className = 'y-color-option' + (optionColor === color ? ' selected' : '');
+        colorBtn.dataset.color = optionColor;
+        colorBtn.style.backgroundColor = optionColor;
+        colorBtn.setAttribute('aria-label', `Couleur ${optionColor}`);
+        colorBtn.title = optionColor;
+        colorBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._setSeriesColor(col.id, optionColor);
+          colorDot.style.backgroundColor = optionColor;
+          colorGrid.querySelectorAll('.y-color-option').forEach(btn => {
+            btn.classList.toggle('selected', btn.dataset.color === optionColor);
+          });
+          this._renderChart();
+        });
+        colorGrid.appendChild(colorBtn);
+      });
+      menu.appendChild(colorGrid);
+
+      row.appendChild(mainBtn);
+      row.appendChild(menuBtn);
+      row.appendChild(menu);
+      this._yList.appendChild(row);
     });
+
+    this._pendingSelectYId = null;
+    this._pendingRegressColId = null;
   }
 
   /** Returns array of colIds for currently selected Y pills */
   _getSelectedYIds() {
-    return Array.from(this._yList.querySelectorAll('.y-pill.selected'))
+    return Array.from(this._yList.querySelectorAll('.y-pill-row.selected'))
       .map(p => p.dataset.colId);
+  }
+
+  _getSeriesStyle(colId) {
+    const style = this._yStyleByColId[colId];
+    return (style === 'line' || style === 'line_points') ? style : 'points';
+  }
+
+  _setSeriesStyle(colId, style) {
+    if (style === 'line' || style === 'line_points') {
+      this._yStyleByColId[colId] = style;
+    } else {
+      delete this._yStyleByColId[colId];
+    }
+  }
+
+  _getSeriesColor(colId, fallbackIndex = 0) {
+    const saved = this._yColorByColId[colId];
+    if (this._isSelectableColor(saved)) return saved;
+    return this._palette[fallbackIndex % this._palette.length];
+  }
+
+  _setSeriesColor(colId, color) {
+    if (!this._isSelectableColor(color)) return;
+    this._yColorByColId[colId] = color;
+  }
+
+  _isSelectableColor(color) {
+    return typeof color === 'string' && this._colorOptions.includes(color);
+  }
+
+  _closeAllSeriesMenus() {
+    this._yList.querySelectorAll('.y-pill-row.menu-open').forEach(row => row.classList.remove('menu-open'));
   }
 
   loadFromData(graphData) {
     if (graphData.xColumn) this._xSelect.value = graphData.xColumn;
+    this._yStyleByColId = {};
+    if (graphData.yStyles && typeof graphData.yStyles === 'object') {
+      Object.entries(graphData.yStyles).forEach(([colId, style]) => {
+        if (style === 'line' || style === 'line_points') this._yStyleByColId[colId] = style;
+      });
+    }
+    this._yColorByColId = {};
+    if (graphData.yColors && typeof graphData.yColors === 'object') {
+      Object.entries(graphData.yColors).forEach(([colId, color]) => {
+        if (this._isSelectableColor(color)) this._yColorByColId[colId] = color;
+      });
+    }
+    this.refreshColumns();
     const savedYIds = graphData.yColumns
       ? graphData.yColumns
       : (graphData.yColumn ? [graphData.yColumn] : []);
-    this._yList.querySelectorAll('.y-pill').forEach(pill => {
+    this._yList.querySelectorAll('.y-pill-row').forEach(pill => {
       pill.classList.toggle('selected', savedYIds.includes(pill.dataset.colId));
     });
     if (graphData.regressionType) {
@@ -119,19 +284,30 @@ class Graph {
   }
 
   toData() {
+    const yStyles = {};
+    Object.entries(this._yStyleByColId).forEach(([colId, style]) => {
+      if (style && style !== 'points') yStyles[colId] = style;
+    });
+    const yColors = {};
+    Object.entries(this._yColorByColId).forEach(([colId, color]) => {
+      if (this._isSelectableColor(color)) yColors[colId] = color;
+    });
     return {
       xColumn: this._xSelect.value || '',
       yColumns: this._getSelectedYIds(),
-      regressionType: this._regressionType
+      regressionType: this._regressionType,
+      yStyles,
+      yColors
     };
   }
 
   // ─── Internal ────────────────────────────────────────────────────────────────
 
   _onAxesChanged() {
+    this._closeAllSeriesMenus();
     this._regressionCoeffs = null;
     this._regressionResult.classList.remove('visible');
-    this._update();
+    this._renderChart();
   }
 
   _update() {
@@ -140,7 +316,7 @@ class Graph {
   }
 
   /**
-   * Returns array of { colId, label, points } for each selected Y column.
+   * Returns array of { colId, label, style, color, points } for selected Y columns.
    * points = [{ x, y }] filtered to rows where both X and Y are valid numbers.
    */
   _getXYData() {
@@ -162,7 +338,14 @@ class Graph {
           points.push({ x: xVals[i], y: yVals[i] });
         }
       }
-      return { colId: yId, label, points };
+      const fallbackIndex = Math.max(0, cols.findIndex(c => c.id === yId));
+      return {
+        colId: yId,
+        label,
+        style: this._getSeriesStyle(yId),
+        color: this._getSeriesColor(yId, fallbackIndex),
+        points
+      };
     }).filter(s => s.points.length > 0);
   }
 
@@ -207,18 +390,22 @@ class Graph {
     const { xLabel } = this._getAxisLabels();
     const datasets = [];
 
-    // 1. Scatter dataset per Y column
-    allSeries.forEach(({ label, points }, i) => {
-      const color = this._palette[i % this._palette.length];
+    // 1. Dataset per Y column (style configurable: points, line, line+points)
+    allSeries.forEach(({ label, points, style, color }) => {
       const sorted = [...points].sort((a, b) => a.x - b.x);
+      const isLine = style === 'line' || style === 'line_points';
+      const showPoints = style !== 'line';
       datasets.push({
         label,
         data: sorted,
         type: 'scatter',
         backgroundColor: color,
-        pointRadius: 5,
-        pointHoverRadius: 7,
-        showLine: false,
+        borderColor: color,
+        borderWidth: isLine ? 2 : 1.5,
+        pointRadius: showPoints ? 5 : 0,
+        pointHoverRadius: showPoints ? 7 : 0,
+        showLine: isLine,
+        tension: 0.15,
         order: 3
       });
     });
@@ -250,7 +437,7 @@ class Graph {
       });
     }
 
-    const yAxisTitle = allSeries.length === 1 ? firstLabel : 'Y';
+    const yAxisTitle = allSeries.length === 1 ? allSeries[0].label : 'Y';
     const scales = {
       x: {
         type: 'linear',
@@ -331,7 +518,9 @@ class Graph {
       }
     }
 
-    this._sheet.addColumnWithValues(newName, result);
+    const newColId = this._sheet.addColumnWithValues(newName, result);
+    this._pendingSelectYId = newColId;
+    this._pendingRegressColId = newColId;
     this._update();
   }
 

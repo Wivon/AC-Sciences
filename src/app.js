@@ -280,6 +280,18 @@
     window.electronAPI.onMenuSave(() => saveProject(false));
     window.electronAPI.onMenuSaveAs(() => saveProject(true));
     window.electronAPI.onMenuExportCsv(() => exportCSV());
+
+    window.electronAPI.onAppClosing(() => {
+      const neverSaved = !currentFilePath;
+      const shouldConfirm = isDirty || neverSaved;
+      const confirmMessage = neverSaved
+        ? "Ce projet n'a jamais ete sauvegarde. Quitter quand meme ?"
+        : 'Des modifications non sauvegardees seront perdues. Quitter quand meme ?';
+
+      if (!shouldConfirm || confirm(confirmMessage)) {
+        window.electronAPI.confirmClose();
+      }
+    });
   }
 
   // ─── Bootstrap ────────────────────────────────────────────────────────────────

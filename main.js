@@ -4,6 +4,7 @@ const fs = require('fs');
 
 let mainWindow = null;
 let currentProjectName = 'Untitled';
+let allowClose = false;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -21,6 +22,13 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
+
+  mainWindow.on('close', (e) => {
+    if (!allowClose) {
+      e.preventDefault();
+      mainWindow.webContents.send('app-closing');
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -165,6 +173,11 @@ ipcMain.handle('show-save-dialog', async (event, options) => {
 ipcMain.handle('show-open-dialog', async (event, options) => {
   const result = await dialog.showOpenDialog(mainWindow, options);
   return result;
+});
+
+ipcMain.on('confirm-close', () => {
+  allowClose = true;
+  mainWindow.close();
 });
 
 ipcMain.on('set-title', (event, name) => {

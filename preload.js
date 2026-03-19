@@ -10,5 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onMenuOpen: (callback) => ipcRenderer.on('menu-open', callback),
   onMenuSave: (callback) => ipcRenderer.on('menu-save', callback),
   onMenuSaveAs: (callback) => ipcRenderer.on('menu-save-as', callback),
-  onMenuExportCsv: (callback) => ipcRenderer.on('menu-export-csv', callback)
+  onMenuExportCsv: (callback) => ipcRenderer.on('menu-export-csv', callback),
+  onAppClosing: (callback) => ipcRenderer.on('app-closing', (_e) => callback()),
+  confirmClose: () => ipcRenderer.send('confirm-close')
 });

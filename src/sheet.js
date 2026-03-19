@@ -134,6 +134,7 @@ class Sheet {
     this._columns.push({ id, name, unit: '', cells });
     this._render();
     this._emitChange();
+    return id;
   }
 
   addRow() {

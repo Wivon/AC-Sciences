@@ -563,6 +563,24 @@ td.data-cell.fill-preview {
   gap: 0;
 }
 
+#graph-y-panel {
+  width: 250px;
+  min-width: 250px;
+  background: #f8fafc;
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 16px 12px;
+}
+
+#graph-y-panel h3 {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
 .sidebar-section {
   margin-bottom: 20px;
   padding-bottom: 16px;
@@ -667,28 +685,29 @@ td.data-cell.fill-preview {
   color: #fff;
 }
 
-.y-axis-label {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-  display: block;
-}
-
 .y-axis-checklist {
   display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-bottom: 10px;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
 }
 
-.y-pill {
+.y-pill-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.y-pill-main {
+  flex: 1;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
+  gap: 8px;
+  justify-content: flex-start;
+  text-align: left;
+  padding: 5px 10px;
   border-radius: 99px;
   border: 1.5px solid var(--border-strong);
   background: var(--surface);
@@ -699,24 +718,162 @@ td.data-cell.fill-preview {
   transition: background 0.12s, color 0.12s, border-color 0.12s;
   user-select: none;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.y-pill:hover {
+.y-pill-color-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.2);
+  flex-shrink: 0;
+}
+
+.y-pill-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.y-pill-main:hover {
   border-color: var(--primary);
   color: var(--primary);
   background: var(--primary-light);
 }
 
-.y-pill.selected {
+.y-pill-row.selected .y-pill-main {
   background: var(--primary);
   border-color: var(--primary);
   color: #fff;
 }
 
-.y-pill.selected:hover {
+.y-pill-row.selected .y-pill-color-dot {
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.y-pill-row.selected .y-pill-main:hover {
   background: var(--primary-dark);
   border-color: var(--primary-dark);
   color: #fff;
+}
+
+.y-pill-menu-btn {
+  width: 24px;
+  height: 24px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 99px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.y-pill-menu-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-light);
+}
+
+.y-pill-row.selected .y-pill-menu-btn {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.y-style-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 188px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+  z-index: 30;
+  display: none;
+}
+
+.y-pill-row.menu-open .y-style-menu {
+  display: block;
+}
+
+.y-style-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.y-style-item:hover {
+  background: var(--primary-light);
+  color: var(--primary-dark);
+}
+
+.y-style-item.selected {
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  font-weight: 600;
+}
+
+.y-style-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 4px 6px 4px;
+}
+
+.y-style-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  padding: 0 8px 6px 8px;
+}
+
+.y-color-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  padding: 0 8px 8px 8px;
+}
+
+.y-color-option {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.2);
+  cursor: pointer;
+  position: relative;
+}
+
+.y-color-option:hover {
+  transform: scale(1.06);
+}
+
+.y-color-option.selected {
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+.y-color-option.selected::after {
+  content: '';
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 
 #regression-result {
