@@ -42,7 +42,7 @@
       sheet: {
         columns: Array.from({ length: 10 }, (_, i) => ({
           id: `col_default_${i}`,
-          name: `Column ${i + 1}`,
+          name: i === 0 ? 't' : `Column ${i + 1}`,
           unit: '',
           cells: Array(10).fill('')
         })),

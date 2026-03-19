@@ -10,6 +10,19 @@ class Sheet {
     this._selectedRow = null;
     this._selectedColId = null;
     this._editingCell = null; // { row, colId }
+    this._activeFormulaInput = null; // input element currently editing a formula
+    this._fillDrag = null;           // active fill-drag state
+
+    // Fill handle element — moved to the selected td
+    this._fillHandle = document.createElement('div');
+    this._fillHandle.className = 'fill-handle';
+    this._fillHandle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (this._selectedColId !== null && this._selectedRow !== null) {
+        this._startFillDrag(this._selectedColId, this._selectedRow);
+      }
+    });
 
     this._tableEl = document.getElementById('sheet-table');
     this._headerRow = document.getElementById('sheet-header-row');
@@ -18,7 +31,24 @@ class Sheet {
     this._formulaInput = formulaBarEl;
     this._formulaCellRef = formulaCellRefEl;
 
-    this._formulaInput.addEventListener('input', () => this._onFormulaBarInput());
+    // Del key clears selected cell when not editing an input
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Delete') {
+        const tag = document.activeElement && document.activeElement.tagName;
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
+          this._clearSelectedCell();
+          e.preventDefault();
+        }
+      }
+    });
+
+    this._formulaInput.addEventListener('focus', () => {
+      this._trackFormulaMode(this._formulaInput);
+    });
+    this._formulaInput.addEventListener('input', () => {
+      this._trackFormulaMode(this._formulaInput);
+      this._onFormulaBarInput();
+    });
     this._formulaInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         this._commitFormulaBar();
@@ -29,7 +59,15 @@ class Sheet {
         this._formulaInput.blur();
       }
     });
-    this._formulaInput.addEventListener('blur', () => this._commitFormulaBar());
+    this._formulaInput.addEventListener('blur', () => {
+      // Delay so mousedown on column headers fires first
+      setTimeout(() => {
+        if (this._activeFormulaInput === this._formulaInput) {
+          this._activeFormulaInput = null;
+        }
+      }, 150);
+      this._commitFormulaBar();
+    });
   }
 
   // ─── Public API ─────────────────────────────────────────────────────────────
@@ -66,7 +104,7 @@ class Sheet {
     return this._columns.map(c => ({ id: c.id, name: c.name, unit: c.unit }));
   }
 
-  /** Returns evaluated numeric data for graphing: [{x, y}] given colId x and y */
+  /** Returns evaluated numeric data for graphing */
   getColumnValues(colId) {
     const col = this._columns.find(c => c.id === colId);
     if (!col) return [];
@@ -97,6 +135,35 @@ class Sheet {
     this._emitChange();
   }
 
+  // ─── Formula Edit Mode ───────────────────────────────────────────────────────
+
+  /** Track whether the given input is actively editing a formula (starts with =) */
+  _trackFormulaMode(input) {
+    if (input.value.startsWith('=')) {
+      this._activeFormulaInput = input;
+    } else if (this._activeFormulaInput === input) {
+      this._activeFormulaInput = null;
+    }
+  }
+
+  /**
+   * Insert a column reference at the cursor position of the active formula input.
+   * @param {string} colName  - column name
+   * @param {number|null} row - 0-indexed row; if provided inserts ColName[N] (1-indexed),
+   *                            otherwise inserts [ColName] (current-row relative).
+   */
+  _insertColumnRef(colName, row = null) {
+    const input = this._activeFormulaInput;
+    if (!input) return;
+    const ref = row !== null ? `${colName}[${row + 1}]` : `[${colName}]`;
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    input.value = input.value.slice(0, start) + ref + input.value.slice(end);
+    input.selectionStart = input.selectionEnd = start + ref.length;
+    input.dispatchEvent(new Event('input'));
+    input.focus();
+  }
+
   // ─── Rendering ───────────────────────────────────────────────────────────────
 
   _render() {
@@ -116,6 +183,15 @@ class Sheet {
       const th = document.createElement('th');
       th.className = 'col-header';
       th.dataset.colId = col.id;
+      th.title = `Click to insert [${col.name}] in formula`;
+
+      // When in formula edit mode, clicking the header inserts [colName]
+      th.addEventListener('mousedown', (e) => {
+        if (this._activeFormulaInput) {
+          e.preventDefault();
+          this._insertColumnRef(col.name);
+        }
+      });
 
       const inner = document.createElement('div');
       inner.className = 'col-header-inner';
@@ -199,11 +275,9 @@ class Sheet {
     td.dataset.colId = colId;
     td.dataset.row = row;
 
-    // Display span (for formula display mode)
     const display = document.createElement('span');
     display.className = 'cell-display';
 
-    // Input (always present; hidden when formula display mode is active)
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'cell-input';
@@ -217,11 +291,26 @@ class Sheet {
       if (evaled === null || evaled === undefined) td.classList.add('error');
     }
 
-    // Events
-    td.addEventListener('click', () => this._selectCell(colId, row));
+    // When in formula edit mode, clicking this cell inserts its column ref
+    td.addEventListener('mousedown', (e) => {
+      if (this._activeFormulaInput && this._activeFormulaInput !== input) {
+        e.preventDefault();
+        this._insertColumnRef(col.name, row); // absolute row ref: ColName[N]
+      }
+    });
+
+    td.addEventListener('click', () => {
+      if (!this._activeFormulaInput) this._selectCell(colId, row);
+    });
     td.addEventListener('dblclick', () => this._startEditing(colId, row, td, input));
 
-    input.addEventListener('focus', () => this._selectCell(colId, row));
+    input.addEventListener('focus', () => {
+      this._trackFormulaMode(input);
+      this._selectCell(colId, row);
+    });
+    input.addEventListener('input', () => {
+      this._trackFormulaMode(input);
+    });
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -233,9 +322,13 @@ class Sheet {
         this._moveSelection(0, 1);
       } else if (e.key === 'Escape') {
         this._cancelEdit();
+        input.blur();
       }
     });
     input.addEventListener('blur', () => {
+      setTimeout(() => {
+        if (this._activeFormulaInput === input) this._activeFormulaInput = null;
+      }, 150);
       this._commitCellInput(colId, row, td, input);
     });
 
@@ -247,7 +340,6 @@ class Sheet {
   // ─── Cell Selection & Editing ─────────────────────────────────────────────
 
   _selectCell(colId, row) {
-    // Deselect previous
     const prev = this._tbody.querySelector('td.data-cell.selected');
     if (prev) prev.classList.remove('selected');
 
@@ -255,7 +347,10 @@ class Sheet {
     this._selectedRow = row;
 
     const td = this._getCellEl(colId, row);
-    if (td) td.classList.add('selected');
+    if (td) {
+      td.classList.add('selected');
+      td.appendChild(this._fillHandle);
+    }
 
     this._updateFormulaBar(colId, row);
   }
@@ -283,7 +378,6 @@ class Sheet {
     const newVal = input.value;
     const old = col.cells[row];
     if (newVal === old) {
-      // Still clean up editing state
       td.classList.remove('editing');
       return;
     }
@@ -326,9 +420,7 @@ class Sheet {
 
   _updateFormulaBar(colId, row) {
     const col = this._columns.find(c => c.id === colId);
-    const colIdx = this._columns.indexOf(col);
-    const colLetter = colIdx >= 0 ? String.fromCharCode(65 + colIdx) : '?';
-    this._formulaCellRef.textContent = `${colLetter}${row + 1}`;
+    this._formulaCellRef.textContent = col ? `${col.name}[${row + 1}]` : '?';
 
     if (col) {
       const rawVal = col.cells[row] || '';
@@ -342,9 +434,6 @@ class Sheet {
 
   _onFormulaBarInput() {
     if (this._selectedColId === null || this._selectedRow === null) return;
-    const col = this._columns.find(c => c.id === this._selectedColId);
-    if (!col) return;
-    // Live update the cell input too
     const td = this._getCellEl(this._selectedColId, this._selectedRow);
     if (td) {
       const input = td.querySelector('.cell-input');
@@ -406,7 +495,6 @@ class Sheet {
   }
 
   _reEvalDependents(changedColId) {
-    // Re-eval all formula cells in all columns (they may depend on changedColId)
     this._columns.forEach(col => {
       for (let r = 0; r < this._rowCount; r++) {
         const raw = col.cells[r] || '';
@@ -424,11 +512,9 @@ class Sheet {
   _formatValue(v) {
     if (typeof v === 'number') {
       if (!isFinite(v)) return '#INF';
-      // Show up to 6 significant figures, no trailing zeros
       if (Math.abs(v) >= 1e6 || (Math.abs(v) < 1e-4 && v !== 0)) {
         return v.toExponential(4);
       }
-      // Round to avoid floating point noise
       const rounded = parseFloat(v.toPrecision(10));
       return String(rounded);
     }
@@ -437,10 +523,6 @@ class Sheet {
 
   // ─── Formula Evaluation ───────────────────────────────────────────────────
 
-  /**
-   * Returns the evaluated numeric value (or string) for cell (colId, row).
-   * Returns null on error.
-   */
   _evalCell(colId, row) {
     const col = this._columns.find(c => c.id === colId);
     if (!col) return null;
@@ -457,10 +539,20 @@ class Sheet {
   }
 
   _evalFormula(expr, row) {
-    // We transform the formula expression into a JavaScript expression
-    // by replacing column references and special functions, then eval.
-
     let js = expr;
+
+    // ColName[N] — specific row reference, 1-indexed (e.g. Time[3], t[1])
+    // Run BEFORE _normalizeKeywords so original column-name case is preserved.
+    js = js.replace(/([A-Za-z][A-Za-z0-9_]*)\[(\d+)\]/g, (_, colName, rowStr) => {
+      const targetRow = parseInt(rowStr, 10) - 1; // 1-indexed → 0-indexed
+      if (targetRow < 0 || targetRow >= this._rowCount) return 'NaN';
+      const col = this._findColumnByName(colName);
+      if (!col) return 'NaN';
+      const v = this._evalCell(col.id, targetRow);
+      return (typeof v === 'number' && isFinite(v)) ? String(v) : 'NaN';
+    });
+
+    js = this._normalizeKeywords(js);
 
     // Replace aggregate functions: SUM([col]), AVG([col]), MIN([col]), MAX([col]), COUNT([col])
     const aggregateFns = ['SUM', 'AVG', 'MIN', 'MAX', 'COUNT'];
@@ -469,12 +561,12 @@ class Sheet {
       js = js.replace(regex, (_, colName) => {
         const vals = this._getColumnNumericValues(colName);
         switch (fn) {
-          case 'SUM': return vals.reduce((a, b) => a + b, 0);
-          case 'AVG': return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
-          case 'MIN': return vals.length ? Math.min(...vals) : 0;
-          case 'MAX': return vals.length ? Math.max(...vals) : 0;
+          case 'SUM':   return vals.reduce((a, b) => a + b, 0);
+          case 'AVG':   return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+          case 'MIN':   return vals.length ? Math.min(...vals) : 0;
+          case 'MAX':   return vals.length ? Math.max(...vals) : 0;
           case 'COUNT': return vals.length;
-          default: return 0;
+          default:      return 0;
         }
       });
     });
@@ -496,24 +588,68 @@ class Sheet {
       return (typeof v === 'number' && isFinite(v)) ? String(v) : 'NaN';
     });
 
-    // Replace PI (without parentheses) → Math.PI
+    // PI constant
     js = js.replace(/\bPI\b/g, 'Math.PI');
 
-    // Replace math functions
+    // Math functions
     const mathFns = ['SQRT', 'ABS', 'LN', 'LOG', 'SIN', 'COS', 'TAN', 'EXP'];
     mathFns.forEach(fn => {
-      const jsFn = fn === 'LN' ? 'Math.log' : `Math.${fn.toLowerCase()}`;
-      const regex = new RegExp(`\\b${fn}\\(`, 'g');
-      js = js.replace(regex, `${jsFn}(`);
+      const jsFn = fn === 'LN' ? 'Math.log' : fn === 'LOG' ? 'Math.log10' : `Math.${fn.toLowerCase()}`;
+      js = js.replace(new RegExp(`\\b${fn}\\(`, 'g'), `${jsFn}(`);
     });
 
-    // Replace ^ with ** (exponentiation)
+    // Exponentiation
     js = js.replace(/\^/g, '**');
 
-    // Evaluate
-    // Use Function to avoid direct eval scope issues
     const result = new Function(`"use strict"; return (${js});`)();
     return typeof result === 'number' ? result : null;
+  }
+
+  /**
+   * Normalize French aliases and English case variants to the canonical
+   * uppercase English keywords used by _evalFormula.
+   */
+  _normalizeKeywords(expr) {
+    const aliases = {
+      // French → English
+      'MOYENNE':    'AVG',
+      'SOMME':      'SUM',
+      'NB':         'COUNT',
+      'NOMBRE':     'COUNT',
+      'NBVAL':      'COUNT',
+      'COMPTER':    'COUNT',
+      'RACINE':     'SQRT',
+      'RACINE_CARR': 'SQRT',
+      'PREC':       'PREV',
+      'PRECEDENT':  'PREV',
+      'SINUS':      'SIN',
+      'COSINUS':    'COS',
+      'TANGENTE':   'TAN',
+      'LN':         'LN',
+      // English case variants
+      'AVERAGE':    'AVG',
+      'SUM':        'SUM',
+      'MIN':        'MIN',
+      'MAX':        'MAX',
+      'COUNT':      'COUNT',
+      'SQRT':       'SQRT',
+      'ABS':        'ABS',
+      'LOG':        'LOG',
+      'SIN':        'SIN',
+      'COS':        'COS',
+      'TAN':        'TAN',
+      'EXP':        'EXP',
+      'PREV':       'PREV',
+      'AVG':        'AVG',
+    };
+
+    // Process outside of [...] brackets — replace each alias (case-insensitive)
+    // We split on bracket groups to avoid mangling column names
+    return expr.replace(/(\[[^\]]*\])|([A-Za-z_][A-Za-z0-9_]*)/g, (_match, bracket, word) => {
+      if (bracket) return bracket; // preserve [ColName] as-is
+      const upper = word.toUpperCase();
+      return aliases[upper] || upper; // normalize to uppercase; apply alias if any
+    });
   }
 
   _findColumnByName(name) {
@@ -529,6 +665,99 @@ class Sheet {
       if (typeof v === 'number' && isFinite(v)) vals.push(v);
     }
     return vals;
+  }
+
+  // ─── Fill Handle ──────────────────────────────────────────────────────────
+
+  _startFillDrag(colId, startRow) {
+    this._fillDrag = { colId, startRow, endRow: startRow };
+
+    const onMove = (e) => {
+      if (!this._fillDrag) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const td = el && el.closest('td[data-row][data-col-id]');
+      if (td && td.dataset.colId === this._fillDrag.colId) {
+        const newEnd = parseInt(td.dataset.row, 10);
+        if (newEnd !== this._fillDrag.endRow) {
+          this._clearFillHighlight();
+          this._fillDrag.endRow = newEnd;
+          this._applyFillHighlight();
+        }
+      }
+    };
+
+    const onUp = () => {
+      this._endFillDrag();
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  _applyFillHighlight() {
+    if (!this._fillDrag) return;
+    const { colId, startRow, endRow } = this._fillDrag;
+    const lo = Math.min(startRow, endRow);
+    const hi = Math.max(startRow, endRow);
+    for (let r = lo; r <= hi; r++) {
+      if (r === startRow) continue;
+      const td = this._getCellEl(colId, r);
+      if (td) td.classList.add('fill-preview');
+    }
+  }
+
+  _clearFillHighlight() {
+    this._tbody.querySelectorAll('td.fill-preview').forEach(td => td.classList.remove('fill-preview'));
+  }
+
+  _endFillDrag() {
+    if (!this._fillDrag) return;
+    const { colId, startRow, endRow } = this._fillDrag;
+
+    if (startRow !== endRow) {
+      const col = this._columns.find(c => c.id === colId);
+      if (col) {
+        const sourceVal = col.cells[startRow] || '';
+        const lo = Math.min(startRow, endRow);
+        const hi = Math.max(startRow, endRow);
+        for (let r = lo; r <= hi; r++) {
+          if (r === startRow) continue;
+          col.cells[r] = this._adjustFormula(sourceVal, r - startRow);
+          this._refreshCell(colId, r);
+        }
+        this._reEvalDependents(colId);
+        this._emitChange();
+      }
+    }
+
+    this._clearFillHighlight();
+    this._fillDrag = null;
+  }
+
+  /** Clear content of the currently selected cell */
+  _clearSelectedCell() {
+    if (this._selectedColId === null || this._selectedRow === null) return;
+    const col = this._columns.find(c => c.id === this._selectedColId);
+    if (!col || col.cells[this._selectedRow] === '') return;
+    col.cells[this._selectedRow] = '';
+    this._refreshCell(this._selectedColId, this._selectedRow);
+    this._reEvalDependents(this._selectedColId);
+    this._updateFormulaBar(this._selectedColId, this._selectedRow);
+    this._emitChange();
+  }
+
+  /**
+   * Adjust ColName[N] row indices in a formula by rowOffset.
+   * Used during fill-drag so that =Time[1]*4 becomes =Time[2]*4 one row down.
+   */
+  _adjustFormula(formula, rowOffset) {
+    if (!formula.startsWith('=') || rowOffset === 0) return formula;
+    return '=' + formula.slice(1).replace(/([A-Za-z][A-Za-z0-9_]*)\[(\d+)\]/g, (_, colName, rowStr) => {
+      const newRow = Math.max(1, parseInt(rowStr, 10) + rowOffset);
+      return `${colName}[${newRow}]`;
+    });
   }
 
   // ─── Events ───────────────────────────────────────────────────────────────
