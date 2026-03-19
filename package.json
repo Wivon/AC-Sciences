@@ -1,7 +1,7 @@
 {
   "name": "ac-sciences",
   "version": "1.0.0",
-  "description": "AC Sciences - Scientific Workbench",
+  "description": "Labo Claveille - Scientific Workbench",
   "main": "main.js",
   "scripts": {
     "start": "env -u ELECTRON_RUN_AS_NODE electron ."

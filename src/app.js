@@ -84,7 +84,7 @@
     if (window.electronAPI) {
       window.electronAPI.setTitle(name);
     }
-    document.title = `AC Sciences — ${name}`;
+    document.title = `Labo Claveille — ${name}`;
   }
 
   function markDirty() {
@@ -106,7 +106,7 @@
         title: 'Save Project',
         defaultPath: (projectData.name || 'Untitled') + '.lab',
         filters: [
-          { name: 'AC Sciences Project', extensions: ['lab'] },
+          { name: 'Labo Claveille Project', extensions: ['lab'] },
           { name: 'All Files', extensions: ['*'] }
         ]
       });
@@ -137,7 +137,7 @@
     const { canceled, filePaths } = await window.electronAPI.showOpenDialog({
       title: 'Open Project',
       filters: [
-        { name: 'AC Sciences Project', extensions: ['lab'] },
+        { name: 'Labo Claveille Project', extensions: ['lab'] },
         { name: 'All Files', extensions: ['*'] }
       ],
       properties: ['openFile']

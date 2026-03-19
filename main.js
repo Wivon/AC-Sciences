@@ -11,7 +11,7 @@ function createWindow() {
     height: 800,
     minWidth: 800,
     minHeight: 600,
-    title: `AC Sciences — ${currentProjectName}`,
+    title: `Labo Claveille — ${currentProjectName}`,
     backgroundColor: '#f8fafc',
     webPreferences: {
       nodeIntegration: false,
@@ -72,7 +72,7 @@ function buildMenu() {
         },
         { type: 'separator' },
         {
-          label: process.platform === 'darwin' ? 'Quit AC Sciences' : 'Quit',
+          label: process.platform === 'darwin' ? 'Quitter Labo Claveille' : 'Quitter',
           accelerator: process.platform === 'darwin' ? 'Cmd+Q' : 'Alt+F4',
           click() {
             app.quit();
@@ -170,7 +170,7 @@ ipcMain.handle('show-open-dialog', async (event, options) => {
 ipcMain.on('set-title', (event, name) => {
   currentProjectName = name;
   if (mainWindow) {
-    mainWindow.setTitle(`AC Sciences — ${name}`);
+    mainWindow.setTitle(`Labo Claveille — ${name}`);
   }
 });
 

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';" />
-  <title>AC Sciences</title>
+  <title>Labo Claveille</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -14,7 +14,7 @@
     <header id="app-header">
       <div id="header-left">
         <img src="./graphics/ac-logo.jpg" alt="Logo Albert Claveille" style="height: 30px; margin-right: 10px;">
-        <span id="app-title">AC Sciences</span>
+        <span id="app-title">Labo Claveille</span>
         <span id="project-name-display">— Sans Nom</span>
       </div>
       <div id="tab-bar">
@@ -79,6 +79,9 @@
 
           <div class="sidebar-section">
             <h3>Modéliser</h3>
+            <label>Colonne
+              <select id="regress-col-select"><option value="">— select —</option></select>
+            </label>
             <label>Type de courbe
               <select id="regression-type-select">
                 <option value="none">None</option>
@@ -101,7 +104,7 @@
             <canvas id="chart-canvas"></canvas>
           </div>
           <div id="chart-placeholder" class="hidden">
-            <p>Select X and Y columns to display the graph.</p>
+            <p>Sélectionnez une colonne en X et Y pour afficher le graphique.</p>
           </div>
         </main>
       </div>

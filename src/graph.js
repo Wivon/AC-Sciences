@@ -13,8 +13,9 @@ class Graph {
 
     this._xSelect = document.getElementById('x-axis-select');
     this._yList   = document.getElementById('y-axis-list');
-    this._deriveColSelect = document.getElementById('derive-col-select');
-    this._deriveBtn = document.getElementById('derive-btn');
+    this._deriveColSelect  = document.getElementById('derive-col-select');
+    this._deriveBtn        = document.getElementById('derive-btn');
+    this._regressColSelect = document.getElementById('regress-col-select');
     this._regressionSelect = document.getElementById('regression-type-select');
     this._fitBtn = document.getElementById('fit-curve-btn');
     this._regressionResult = document.getElementById('regression-result');
@@ -59,24 +60,25 @@ class Graph {
     const xVal = this._xSelect.value;
     const prevYIds = this._getSelectedYIds();
 
-    const deriveVal = this._deriveColSelect.value;
+    const deriveVal   = this._deriveColSelect.value;
+    const regressVal  = this._regressColSelect.value;
 
-    // Rebuild X dropdown
-    this._xSelect.innerHTML = '<option value="">— select —</option>';
-    this._deriveColSelect.innerHTML = '<option value="">— select —</option>';
+    // Rebuild X, derive, regress dropdowns
+    this._xSelect.innerHTML         = '<option value="">— select —</option>';
+    this._deriveColSelect.innerHTML  = '<option value="">— select —</option>';
+    this._regressColSelect.innerHTML = '<option value="">— select —</option>';
     cols.forEach(col => {
       const label = col.unit ? `${col.name} (${col.unit})` : col.name;
-
       const opt = document.createElement('option');
       opt.value = col.id;
       opt.textContent = label;
       this._xSelect.appendChild(opt);
-
-      const dopt = opt.cloneNode(true);
-      this._deriveColSelect.appendChild(dopt);
+      this._deriveColSelect.appendChild(opt.cloneNode(true));
+      this._regressColSelect.appendChild(opt.cloneNode(true));
     });
-    if (xVal && cols.find(c => c.id === xVal)) this._xSelect.value = xVal;
-    if (deriveVal && cols.find(c => c.id === deriveVal)) this._deriveColSelect.value = deriveVal;
+    if (xVal       && cols.find(c => c.id === xVal))      this._xSelect.value = xVal;
+    if (deriveVal  && cols.find(c => c.id === deriveVal))  this._deriveColSelect.value = deriveVal;
+    if (regressVal && cols.find(c => c.id === regressVal)) this._regressColSelect.value = regressVal;
 
     // Rebuild Y pill toggles
     this._yList.innerHTML = '';
@@ -164,10 +166,23 @@ class Graph {
     }).filter(s => s.points.length > 0);
   }
 
-  /** Returns points for first selected Y column (used by regression/derivative) */
-  _getFirstYData() {
-    const series = this._getXYData();
-    return series && series.length > 0 ? series[0].points : null;
+  /** Returns {points, label} for the column chosen in the regression selector (falls back to first Y). */
+  _getRegressData() {
+    const xId = this._xSelect.value;
+    const yId = this._regressColSelect.value;
+    if (!xId || !yId) {
+      // fall back to first selected Y pill
+      const series = this._getXYData();
+      return series && series.length > 0 ? series[0].points : null;
+    }
+    const xVals = this._sheet.getColumnValues(xId);
+    const yVals = this._sheet.getColumnValues(yId);
+    const points = [];
+    const len = Math.min(xVals.length, yVals.length);
+    for (let i = 0; i < len; i++) {
+      if (xVals[i] !== null && yVals[i] !== null) points.push({ x: xVals[i], y: yVals[i] });
+    }
+    return points.length > 0 ? points : null;
   }
 
   _getAxisLabels() {
@@ -208,14 +223,13 @@ class Graph {
       });
     });
 
-    // Regression uses the first selected Y series
-    const firstSorted = allSeries[0].points.slice().sort((a, b) => a.x - b.x);
-    const firstLabel = allSeries[0].label;
+    // 2. Regression curve on the chosen column (or first Y as fallback)
+    const regressPts = this._getRegressData();
+    const regressSorted = regressPts ? regressPts.slice().sort((a, b) => a.x - b.x) : [];
 
-    // 2. Regression curve (on first Y series)
-    if (this._regressionCoeffs && firstSorted.length >= 2) {
-      const xMin = firstSorted[0].x;
-      const xMax = firstSorted[firstSorted.length - 1].x;
+    if (this._regressionCoeffs && regressSorted.length >= 2) {
+      const xMin = regressSorted[0].x;
+      const xMax = regressSorted[regressSorted.length - 1].x;
       const step = (xMax - xMin) / 99;
       const curvePts = [];
       for (let i = 0; i < 100; i++) {
@@ -322,7 +336,7 @@ class Graph {
   }
 
   _fitCurve() {
-    const points = this._getFirstYData();
+    const points = this._getRegressData();
     if (!points || points.length < 2) {
       this._showRegressionResult('Not enough data points.');
       return;
