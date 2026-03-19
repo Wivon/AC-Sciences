@@ -22,7 +22,8 @@
         <button class="tab-btn" data-tab="graph">Graph</button>
       </div>
       <div id="header-right">
-        <button id="save-btn" class="header-btn" title="Save (Ctrl+S)">Sauvegarder</button>
+        <button id="open-btn" class="header-btn" title="Ouvrir (Ctrl+O)">Ouvrir</button>
+        <button id="save-btn" class="header-btn" title="Sauvegarder (Ctrl+S)">Sauvegarder</button>
       </div>
     </header>
 
@@ -64,9 +65,8 @@
             <label>X Axis
               <select id="x-axis-select"><option value="">— select —</option></select>
             </label>
-            <label>Y Axis
-              <select id="y-axis-select"><option value="">— select —</option></select>
-            </label>
+            <label class="y-axis-label">Axe Y</label>
+            <div id="y-axis-list" class="y-axis-checklist"></div>
           </div>
 
           <div class="sidebar-section">

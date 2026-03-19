@@ -21,6 +21,7 @@
   const formulaCellRef = document.getElementById('formula-cell-ref');
   const formulaBar = document.getElementById('formula-bar');
   const saveBtn = document.getElementById('save-btn');
+  const openBtn = document.getElementById('open-btn');
 
   // ─── Create Sheet & Graph ────────────────────────────────────────────────────
 
@@ -238,6 +239,7 @@
   });
 
   saveBtn.addEventListener('click', () => saveProject(false));
+  openBtn.addEventListener('click', () => openProject());
 
   // ─── Keyboard Shortcuts ───────────────────────────────────────────────────────
 
@@ -245,6 +247,10 @@
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault();
       saveProject(e.shiftKey);
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
+      e.preventDefault();
+      openProject();
     }
   });
 
