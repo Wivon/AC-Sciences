@@ -12,8 +12,9 @@ class Graph {
     this._regressionType = 'none';
 
     this._xSelect = document.getElementById('x-axis-select');
-    this._ySelect = document.getElementById('y-axis-select');
-    this._showDerivativeCb = document.getElementById('show-derivative-cb');
+    this._yList   = document.getElementById('y-axis-list');
+    this._deriveColSelect = document.getElementById('derive-col-select');
+    this._deriveBtn = document.getElementById('derive-btn');
     this._regressionSelect = document.getElementById('regression-type-select');
     this._fitBtn = document.getElementById('fit-curve-btn');
     this._regressionResult = document.getElementById('regression-result');
@@ -21,11 +22,22 @@ class Graph {
     this._canvas = document.getElementById('chart-canvas');
     this._placeholder = document.getElementById('chart-placeholder');
 
+    // Color palette for multiple Y series
+    this._palette = [
+      'rgba(37,99,235,0.75)',
+      'rgba(239,68,68,0.75)',
+      'rgba(16,185,129,0.75)',
+      'rgba(245,158,11,0.75)',
+      'rgba(139,92,246,0.75)',
+      'rgba(236,72,153,0.75)',
+      'rgba(20,184,166,0.75)',
+      'rgba(249,115,22,0.75)',
+    ];
+
     this._fitBtn.addEventListener('click', () => this._fitCurve());
+    this._deriveBtn.addEventListener('click', () => this._deriveColumn());
     this._refreshBtn.addEventListener('click', () => this._update());
     this._xSelect.addEventListener('change', () => this._onAxesChanged());
-    this._ySelect.addEventListener('change', () => this._onAxesChanged());
-    this._showDerivativeCb.addEventListener('change', () => this._renderChart());
     this._regressionSelect.addEventListener('change', () => {
       this._regressionType = this._regressionSelect.value;
       this._regressionCoeffs = null;
@@ -45,36 +57,58 @@ class Graph {
   refreshColumns() {
     const cols = this._sheet.getColumns();
     const xVal = this._xSelect.value;
-    const yVal = this._ySelect.value;
+    const prevYIds = this._getSelectedYIds();
 
+    const deriveVal = this._deriveColSelect.value;
+
+    // Rebuild X dropdown
     this._xSelect.innerHTML = '<option value="">— select —</option>';
-    this._ySelect.innerHTML = '<option value="">— select —</option>';
-
+    this._deriveColSelect.innerHTML = '<option value="">— select —</option>';
     cols.forEach(col => {
       const label = col.unit ? `${col.name} (${col.unit})` : col.name;
 
-      const ox = document.createElement('option');
-      ox.value = col.id;
-      ox.textContent = label;
-      this._xSelect.appendChild(ox);
+      const opt = document.createElement('option');
+      opt.value = col.id;
+      opt.textContent = label;
+      this._xSelect.appendChild(opt);
 
-      const oy = document.createElement('option');
-      oy.value = col.id;
-      oy.textContent = label;
-      this._ySelect.appendChild(oy);
+      const dopt = opt.cloneNode(true);
+      this._deriveColSelect.appendChild(dopt);
     });
-
-    // Restore previous selection if still valid
     if (xVal && cols.find(c => c.id === xVal)) this._xSelect.value = xVal;
-    if (yVal && cols.find(c => c.id === yVal)) this._ySelect.value = yVal;
+    if (deriveVal && cols.find(c => c.id === deriveVal)) this._deriveColSelect.value = deriveVal;
+
+    // Rebuild Y pill toggles
+    this._yList.innerHTML = '';
+    cols.forEach(col => {
+      const label = col.unit ? `${col.name} (${col.unit})` : col.name;
+      const pill = document.createElement('button');
+      pill.type = 'button';
+      pill.className = 'y-pill' + (prevYIds.includes(col.id) ? ' selected' : '');
+      pill.dataset.colId = col.id;
+      pill.textContent = label;
+      pill.addEventListener('click', () => {
+        pill.classList.toggle('selected');
+        this._onAxesChanged();
+      });
+      this._yList.appendChild(pill);
+    });
+  }
+
+  /** Returns array of colIds for currently selected Y pills */
+  _getSelectedYIds() {
+    return Array.from(this._yList.querySelectorAll('.y-pill.selected'))
+      .map(p => p.dataset.colId);
   }
 
   loadFromData(graphData) {
     if (graphData.xColumn) this._xSelect.value = graphData.xColumn;
-    if (graphData.yColumn) this._ySelect.value = graphData.yColumn;
-    if (typeof graphData.showDerivative === 'boolean') {
-      this._showDerivativeCb.checked = graphData.showDerivative;
-    }
+    const savedYIds = graphData.yColumns
+      ? graphData.yColumns
+      : (graphData.yColumn ? [graphData.yColumn] : []);
+    this._yList.querySelectorAll('.y-pill').forEach(pill => {
+      pill.classList.toggle('selected', savedYIds.includes(pill.dataset.colId));
+    });
     if (graphData.regressionType) {
       this._regressionType = graphData.regressionType;
       this._regressionSelect.value = graphData.regressionType;
@@ -85,8 +119,7 @@ class Graph {
   toData() {
     return {
       xColumn: this._xSelect.value || '',
-      yColumn: this._ySelect.value || '',
-      showDerivative: this._showDerivativeCb.checked,
+      yColumns: this._getSelectedYIds(),
       regressionType: this._regressionType
     };
   }
@@ -104,116 +137,85 @@ class Graph {
     this._renderChart();
   }
 
+  /**
+   * Returns array of { colId, label, points } for each selected Y column.
+   * points = [{ x, y }] filtered to rows where both X and Y are valid numbers.
+   */
   _getXYData() {
     const xId = this._xSelect.value;
-    const yId = this._ySelect.value;
-    if (!xId || !yId) return null;
+    const yIds = this._getSelectedYIds();
+    if (!xId || yIds.length === 0) return null;
 
     const xVals = this._sheet.getColumnValues(xId);
-    const yVals = this._sheet.getColumnValues(yId);
+    const cols = this._sheet.getColumns();
 
-    const points = [];
-    const len = Math.min(xVals.length, yVals.length);
-    for (let i = 0; i < len; i++) {
-      if (xVals[i] !== null && yVals[i] !== null) {
-        points.push({ x: xVals[i], y: yVals[i] });
+    return yIds.map(yId => {
+      const yVals = this._sheet.getColumnValues(yId);
+      const col = cols.find(c => c.id === yId);
+      const label = col ? (col.unit ? `${col.name} (${col.unit})` : col.name) : yId;
+      const points = [];
+      const len = Math.min(xVals.length, yVals.length);
+      for (let i = 0; i < len; i++) {
+        if (xVals[i] !== null && yVals[i] !== null) {
+          points.push({ x: xVals[i], y: yVals[i] });
+        }
       }
-    }
-    return points;
+      return { colId: yId, label, points };
+    }).filter(s => s.points.length > 0);
   }
 
-  _computeDerivative(points) {
-    if (!points || points.length < 2) return [];
-    const deriv = [];
-    const n = points.length;
-    for (let i = 0; i < n; i++) {
-      let dy, x;
-      if (i === 0) {
-        // Forward difference
-        dy = (points[1].y - points[0].y) / (points[1].x - points[0].x);
-        x = points[0].x;
-      } else if (i === n - 1) {
-        // Backward difference
-        dy = (points[n - 1].y - points[n - 2].y) / (points[n - 1].x - points[n - 2].x);
-        x = points[n - 1].x;
-      } else {
-        // Central difference
-        dy = (points[i + 1].y - points[i - 1].y) / (points[i + 1].x - points[i - 1].x);
-        x = points[i].x;
-      }
-      if (isFinite(dy)) deriv.push({ x, y: dy });
-    }
-    return deriv;
+  /** Returns points for first selected Y column (used by regression/derivative) */
+  _getFirstYData() {
+    const series = this._getXYData();
+    return series && series.length > 0 ? series[0].points : null;
   }
 
   _getAxisLabels() {
     const cols = this._sheet.getColumns();
     const xId = this._xSelect.value;
-    const yId = this._ySelect.value;
     const xCol = cols.find(c => c.id === xId);
-    const yCol = cols.find(c => c.id === yId);
     const xLabel = xCol ? (xCol.unit ? `${xCol.name} (${xCol.unit})` : xCol.name) : 'X';
-    const yLabel = yCol ? (yCol.unit ? `${yCol.name} (${yCol.unit})` : yCol.name) : 'Y';
-    return { xLabel, yLabel };
+    return { xLabel };
   }
 
   _renderChart() {
-    const points = this._getXYData();
+    const allSeries = this._getXYData();
 
-    if (!points || points.length === 0) {
+    if (!allSeries || allSeries.length === 0) {
       this._placeholder.classList.remove('hidden');
-      if (this._chart) {
-        this._chart.destroy();
-        this._chart = null;
-      }
+      if (this._chart) { this._chart.destroy(); this._chart = null; }
       return;
     }
 
     this._placeholder.classList.add('hidden');
 
-    const { xLabel, yLabel } = this._getAxisLabels();
-
-    // Sort by x for derivative / regression curve
-    const sorted = [...points].sort((a, b) => a.x - b.x);
-
+    const { xLabel } = this._getAxisLabels();
     const datasets = [];
 
-    // 1. Scatter data
-    datasets.push({
-      label: yLabel,
-      data: sorted.map(p => ({ x: p.x, y: p.y })),
-      type: 'scatter',
-      backgroundColor: 'rgba(37, 99, 235, 0.7)',
-      pointRadius: 5,
-      pointHoverRadius: 7,
-      showLine: false,
-      order: 3
+    // 1. Scatter dataset per Y column
+    allSeries.forEach(({ label, points }, i) => {
+      const color = this._palette[i % this._palette.length];
+      const sorted = [...points].sort((a, b) => a.x - b.x);
+      datasets.push({
+        label,
+        data: sorted,
+        type: 'scatter',
+        backgroundColor: color,
+        pointRadius: 5,
+        pointHoverRadius: 7,
+        showLine: false,
+        order: 3
+      });
     });
 
-    // 2. Derivative overlay
-    if (this._showDerivativeCb.checked) {
-      const deriv = this._computeDerivative(sorted);
-      if (deriv.length > 0) {
-        datasets.push({
-          label: 'd/dx ' + yLabel,
-          data: deriv.map(p => ({ x: p.x, y: p.y })),
-          type: 'line',
-          borderColor: 'rgba(16, 185, 129, 0.85)',
-          backgroundColor: 'transparent',
-          borderDash: [6, 3],
-          borderWidth: 2,
-          pointRadius: 0,
-          tension: 0.3,
-          yAxisID: 'yDeriv',
-          order: 2
-        });
-      }
-    }
+    // Regression uses the first selected Y series
+    const firstSorted = allSeries[0].points.slice().sort((a, b) => a.x - b.x);
+    const firstLabel = allSeries[0].label;
 
-    // 3. Regression curve
-    if (this._regressionCoeffs) {
-      const xMin = sorted[0].x;
-      const xMax = sorted[sorted.length - 1].x;
+    // 2. Regression curve (on first Y series)
+    if (this._regressionCoeffs && firstSorted.length >= 2) {
+      const xMin = firstSorted[0].x;
+      const xMax = firstSorted[firstSorted.length - 1].x;
       const step = (xMax - xMin) / 99;
       const curvePts = [];
       for (let i = 0; i < 100; i++) {
@@ -222,10 +224,10 @@ class Graph {
         if (yi !== null && isFinite(yi)) curvePts.push({ x: xi, y: yi });
       }
       datasets.push({
-        label: 'Regression',
+        label: 'Régression',
         data: curvePts,
         type: 'line',
-        borderColor: 'rgba(245, 158, 11, 0.95)',
+        borderColor: 'rgba(245,158,11,0.95)',
         backgroundColor: 'transparent',
         borderWidth: 2.5,
         pointRadius: 0,
@@ -234,7 +236,7 @@ class Graph {
       });
     }
 
-    // Chart options
+    const yAxisTitle = allSeries.length === 1 ? firstLabel : 'Y';
     const scales = {
       x: {
         type: 'linear',
@@ -242,23 +244,12 @@ class Graph {
         grid: { color: 'rgba(0,0,0,0.06)' }
       },
       y: {
-        title: { display: true, text: yLabel, font: { size: 12 } },
+        title: { display: true, text: yAxisTitle, font: { size: 12 } },
         grid: { color: 'rgba(0,0,0,0.06)' }
       }
     };
 
-    if (this._showDerivativeCb.checked) {
-      scales.yDeriv = {
-        type: 'linear',
-        position: 'right',
-        title: { display: true, text: `d${yLabel}/dx`, font: { size: 11 }, color: 'rgba(16,185,129,0.9)' },
-        grid: { drawOnChartArea: false },
-        ticks: { color: 'rgba(16,185,129,0.9)' }
-      };
-    }
-
     if (this._chart) {
-      // Update existing chart
       this._chart.data.datasets = datasets;
       this._chart.options.scales = scales;
       this._chart.update();
@@ -269,18 +260,12 @@ class Graph {
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          animation: { duration: 150 },
+          animation: false,
           plugins: {
-            legend: {
-              display: true,
-              position: 'top',
-              labels: { font: { size: 11 }, padding: 10 }
-            },
+            legend: { display: true, position: 'top', labels: { font: { size: 11 }, padding: 10 } },
             tooltip: {
               callbacks: {
-                label: (ctx) => {
-                  return ` (${this._fmt(ctx.parsed.x)}, ${this._fmt(ctx.parsed.y)})`;
-                }
+                label: (ctx) => ` (${this._fmt(ctx.parsed.x)}, ${this._fmt(ctx.parsed.y)})`
               }
             }
           },
@@ -299,8 +284,45 @@ class Graph {
 
   // ─── Regression ───────────────────────────────────────────────────────────
 
+  _deriveColumn() {
+    const xId = this._xSelect.value;
+    const yId = this._deriveColSelect.value;
+    if (!xId || !yId) { alert('Sélectionnez un axe X et une colonne à dériver.'); return; }
+
+    const xVals = this._sheet.getColumnValues(xId);
+    const yVals = this._sheet.getColumnValues(yId);
+    const cols  = this._sheet.getColumns();
+    const yCol  = cols.find(c => c.id === yId);
+    const newName = (yCol ? yCol.name : 'col') + "'";
+
+    const n = Math.min(xVals.length, yVals.length);
+    const result = new Array(n).fill(null);
+
+    for (let i = 0; i < n; i++) {
+      const xi = xVals[i], yi = yVals[i];
+      if (xi === null || yi === null) continue;
+
+      if (i === 0) {
+        const x1 = xVals[1], y1 = yVals[1];
+        if (x1 !== null && y1 !== null && x1 !== xi) result[i] = (y1 - yi) / (x1 - xi);
+      } else if (i === n - 1) {
+        const xp = xVals[i - 1], yp = yVals[i - 1];
+        if (xp !== null && yp !== null && xi !== xp) result[i] = (yi - yp) / (xi - xp);
+      } else {
+        const xp = xVals[i - 1], yp = yVals[i - 1];
+        const xn = xVals[i + 1], yn = yVals[i + 1];
+        if (xp !== null && yp !== null && xn !== null && yn !== null && xn !== xp) {
+          result[i] = (yn - yp) / (xn - xp);
+        }
+      }
+    }
+
+    this._sheet.addColumnWithValues(newName, result);
+    this._update();
+  }
+
   _fitCurve() {
-    const points = this._getXYData();
+    const points = this._getFirstYData();
     if (!points || points.length < 2) {
       this._showRegressionResult('Not enough data points.');
       return;

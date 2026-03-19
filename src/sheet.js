@@ -125,6 +125,17 @@ class Sheet {
     this._emitChange();
   }
 
+  addColumnWithValues(name, values) {
+    const id = 'col_' + Math.random().toString(36).slice(2, 9);
+    const cells = Array.from({ length: this._rowCount }, (_, i) => {
+      const v = values[i];
+      return (v === null || v === undefined || (typeof v === 'number' && !isFinite(v))) ? '' : String(parseFloat(v.toPrecision(8)));
+    });
+    this._columns.push({ id, name, unit: '', cells });
+    this._render();
+    this._emitChange();
+  }
+
   addRow() {
     this._rowCount++;
     this._columns.forEach(c => c.cells.push(''));
@@ -848,15 +859,26 @@ class Sheet {
   }
 
   /**
-   * Adjust ColName[N] row indices in a formula by rowOffset.
-   * Used during fill-drag so that =Time[1]*4 becomes =Time[2]*4 one row down.
+   * Adjust a cell value by rowOffset.
+   * - Formulas: increments ColName[N] row indices (=Time[1]*4 → =Time[2]*4 one row down).
+   * - Plain numbers: increments by step * rowOffset, where step = the original value
+   *   (so 1 → 2, 3, 4… and 0.1 → 0.2, 0.3, 0.4…).
    */
   _adjustFormula(formula, rowOffset) {
-    if (!formula.startsWith('=') || rowOffset === 0) return formula;
-    return '=' + formula.slice(1).replace(/([A-Za-z][A-Za-z0-9_]*)\[(\d+)\]/g, (_, colName, rowStr) => {
-      const newRow = Math.max(1, parseInt(rowStr, 10) + rowOffset);
-      return `${colName}[${newRow}]`;
-    });
+    if (rowOffset === 0) return formula;
+    if (formula.startsWith('=')) {
+      return '=' + formula.slice(1).replace(/([A-Za-z][A-Za-z0-9_]*)\[(\d+)\]/g, (_, colName, rowStr) => {
+        const newRow = Math.max(1, parseInt(rowStr, 10) + rowOffset);
+        return `${colName}[${newRow}]`;
+      });
+    }
+    // Plain numeric value: increment by (value * rowOffset)
+    const num = parseFloat(formula);
+    if (!isNaN(num) && formula.trim() !== '') {
+      const result = num + num * rowOffset;
+      return String(parseFloat(result.toPrecision(10)));
+    }
+    return formula;
   }
 
   // ─── Events ───────────────────────────────────────────────────────────────

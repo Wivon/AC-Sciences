@@ -62,7 +62,7 @@
         <aside id="graph-sidebar">
           <div class="sidebar-section">
             <h3>Axes</h3>
-            <label>X Axis
+            <label>Axe X
               <select id="x-axis-select"><option value="">— select —</option></select>
             </label>
             <label class="y-axis-label">Axe Y</label>
@@ -70,29 +70,29 @@
           </div>
 
           <div class="sidebar-section">
-            <h3>Options</h3>
-            <label class="checkbox-label">
-              <input type="checkbox" id="show-derivative-cb" />
-              Show Derivative (dy/dx)
+            <h3>Dériver</h3>
+            <label>Colonne
+              <select id="derive-col-select"><option value="">— select —</option></select>
             </label>
+            <button id="derive-btn" class="sidebar-btn blue">Calculer d/dx → nouvelle colonne</button>
           </div>
 
           <div class="sidebar-section">
-            <h3>Regression</h3>
-            <label>Curve type
+            <h3>Modéliser</h3>
+            <label>Type de courbe
               <select id="regression-type-select">
                 <option value="none">None</option>
-                <option value="linear">Linear (y = ax + b)</option>
-                <option value="exponential">Exponential (y = a·eᵇˣ)</option>
-                <option value="parabola">Parabola (y = ax² + bx + c)</option>
+                <option value="linear">Droite (y = mx + p)</option>
+                <option value="exponential">Exponentielle (y = a·eᵇˣ)</option>
+                <option value="parabola">Parabolique (y = ax² + bx + c)</option>
               </select>
             </label>
-            <button id="fit-curve-btn" class="sidebar-btn amber">Fit Curve</button>
+            <button id="fit-curve-btn" class="sidebar-btn amber">Tracer</button>
             <div id="regression-result"></div>
           </div>
 
           <div class="sidebar-section">
-            <button id="refresh-graph-btn" class="sidebar-btn blue">Refresh Graph</button>
+            <button id="refresh-graph-btn" class="sidebar-btn blue">Recharger le Graph</button>
           </div>
         </aside>
 

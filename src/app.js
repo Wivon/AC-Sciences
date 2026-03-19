@@ -41,9 +41,9 @@
       created: now,
       modified: now,
       sheet: {
-        columns: Array.from({ length: 10 }, (_, i) => ({
+        columns: Array.from({ length: 5 }, (_, i) => ({
           id: `col_default_${i}`,
-          name: i === 0 ? 't' : `Column ${i + 1}`,
+          name: i === 0 ? 't' : String.fromCharCode(65 + i), // B, C, D…
           unit: '',
           cells: Array(10).fill('')
         })),
@@ -287,19 +287,6 @@
   // Start with a fresh project
   newProject();
 
-  // Add a couple of default columns to get the user started
-  sheet.addColumn();
-  sheet.addColumn();
-  // Give them reasonable default names
-  if (sheet._columns.length >= 2) {
-    sheet._columns[0].name = 'Time';
-    sheet._columns[0].unit = 's';
-    sheet._columns[1].name = 'Value';
-    sheet._columns[1].unit = '';
-    sheet._render();
-  }
-  // Add 5 empty rows
-  for (let i = 0; i < 5; i++) sheet.addRow();
 
   // Reset dirty flag after bootstrap
   isDirty = false;
