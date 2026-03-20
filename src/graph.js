@@ -417,32 +417,45 @@ class Graph {
   }
 
   _closeAllSeriesMenus() {
-    this._yList.querySelectorAll('.y-pill-row.menu-open, .y-pill-row.menu-up').forEach(row => {
-      row.classList.remove('menu-open', 'menu-up');
+    this._yList.querySelectorAll('.y-pill-row.menu-open').forEach(row => {
+      row.classList.remove('menu-open');
       const menu = row.querySelector('.y-style-menu');
-      if (menu) menu.style.maxHeight = '';
+      if (menu) {
+        menu.style.maxHeight = '';
+        menu.style.left = '';
+        menu.style.top = '';
+      }
     });
   }
 
   _positionSeriesMenu(row, menu) {
     if (!row || !menu) return;
-    const container = this._yPanel || this._yList;
-    if (!container) return;
-
-    row.classList.remove('menu-up');
     menu.style.maxHeight = '';
-
-    const gap = 4;
-    const containerRect = container.getBoundingClientRect();
+    const viewportW = window.innerWidth || document.documentElement.clientWidth || 0;
+    const viewportH = window.innerHeight || document.documentElement.clientHeight || 0;
     const rowRect = row.getBoundingClientRect();
-    const menuHeight = menu.getBoundingClientRect().height || 0;
-    const spaceBelow = containerRect.bottom - rowRect.bottom - gap;
-    const spaceAbove = rowRect.top - containerRect.top - gap;
-    const openUp = menuHeight > spaceBelow && spaceAbove > spaceBelow;
-    row.classList.toggle('menu-up', openUp);
+    const gap = 8;
 
-    const available = Math.max(60, Math.floor(openUp ? spaceAbove : spaceBelow));
-    menu.style.maxHeight = `${Math.min(380, available)}px`;
+    // Ensure we can measure the rendered size before final placement.
+    menu.style.left = '-9999px';
+    menu.style.top = '-9999px';
+    const measuredRect = menu.getBoundingClientRect();
+    const menuW = measuredRect.width || 220;
+    const menuH = measuredRect.height || 240;
+
+    // Prefer opening on the left of the Y panel (towards the chart area).
+    let x = rowRect.left - menuW - gap;
+    if (x < gap) x = rowRect.right + gap;
+    if (x + menuW > viewportW - gap) x = Math.max(gap, viewportW - menuW - gap);
+
+    let y = rowRect.top;
+    if (y + menuH > viewportH - gap) y = viewportH - menuH - gap;
+    y = Math.max(gap, y);
+
+    const maxH = Math.max(80, viewportH - y - gap);
+    menu.style.maxHeight = `${Math.min(420, maxH)}px`;
+    menu.style.left = `${Math.round(x)}px`;
+    menu.style.top = `${Math.round(y)}px`;
   }
 
   loadFromData(graphData = {}) {
