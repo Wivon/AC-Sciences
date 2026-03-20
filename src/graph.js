@@ -445,7 +445,7 @@ class Graph {
     menu.style.maxHeight = `${Math.min(380, available)}px`;
   }
 
-  loadFromData(graphData) {
+  loadFromData(graphData = {}) {
     this._axisZoom = { x: null, y: null };
     this._axisDrag = null;
     this._pointerState = null;

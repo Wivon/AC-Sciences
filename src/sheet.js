@@ -33,6 +33,10 @@ class Sheet {
     this._tbody = document.getElementById('sheet-body');
     this._formulaInput = formulaBarEl;
     this._formulaCellRef = formulaCellRefEl;
+    this._angleMode = 'rad'; // rad | deg
+    this._angleModeSwitch = document.getElementById('angle-mode-switch');
+    this._angleModeDegBtn = document.getElementById('angle-mode-deg-btn');
+    this._angleModeRadBtn = document.getElementById('angle-mode-rad-btn');
 
     // Del / Backspace clears selected cells when not editing an input
     document.addEventListener('keydown', (e) => {
@@ -71,9 +75,33 @@ class Sheet {
       }, 150);
       this._commitFormulaBar();
     });
+
+    if (this._angleModeDegBtn) {
+      this._angleModeDegBtn.addEventListener('click', () => this._setAngleMode('deg', { reEval: true, emitChange: true }));
+    }
+    if (this._angleModeRadBtn) {
+      this._angleModeRadBtn.addEventListener('click', () => this._setAngleMode('rad', { reEval: true, emitChange: true }));
+    }
+    this._syncAngleModeUI();
   }
 
   // ─── Public API ─────────────────────────────────────────────────────────────
+
+  _syncAngleModeUI() {
+    if (!this._angleModeSwitch) return;
+    const isDeg = this._angleMode === 'deg';
+    if (this._angleModeDegBtn) this._angleModeDegBtn.classList.toggle('selected', isDeg);
+    if (this._angleModeRadBtn) this._angleModeRadBtn.classList.toggle('selected', !isDeg);
+  }
+
+  _setAngleMode(mode, { reEval = false, emitChange = false } = {}) {
+    const next = mode === 'deg' ? 'deg' : 'rad';
+    if (this._angleMode === next) return;
+    this._angleMode = next;
+    this._syncAngleModeUI();
+    if (reEval) this._reEvalAll();
+    if (emitChange) this._emitChange();
+  }
 
   loadFromData(sheetData) {
     this._columns = sheetData.columns.map(c => ({
@@ -88,6 +116,7 @@ class Sheet {
       while (col.cells.length < this._rowCount) col.cells.push('');
       col.cells = col.cells.slice(0, this._rowCount);
     });
+    this._setAngleMode(sheetData && sheetData.angleMode === 'deg' ? 'deg' : 'rad');
     this._render();
   }
 
@@ -99,7 +128,8 @@ class Sheet {
         unit: c.unit,
         cells: [...c.cells]
       })),
-      rowCount: this._rowCount
+      rowCount: this._rowCount,
+      angleMode: this._angleMode
     };
   }
 
@@ -124,12 +154,23 @@ class Sheet {
    * - Clears remaining cells in targeted columns.
    * @param {Object<string, Array<number|string|null|undefined>>} valuesByName
    * @param {Object<string, string>} unitsByName
+   * @param {Object} options
    */
-  setColumnsByName(valuesByName, unitsByName = {}) {
+  setColumnsByName(valuesByName, unitsByName = {}, options = {}) {
     if (!valuesByName || typeof valuesByName !== 'object') return;
 
     const columnNames = Object.keys(valuesByName).filter(name => String(name).trim() !== '');
     if (columnNames.length === 0) return;
+    const insertAfterName = (options && typeof options.insertAfterName === 'string')
+      ? options.insertAfterName.trim()
+      : '';
+    const insertAfterKey = insertAfterName.toLowerCase();
+    const reorderAfterAnchor = !!(options && options.reorderAfterAnchor);
+    let insertionCursor = null;
+    if (insertAfterKey) {
+      const anchorIdx = this._columns.findIndex(c => c.name.trim().toLowerCase() === insertAfterKey);
+      if (anchorIdx >= 0) insertionCursor = anchorIdx + 1;
+    }
 
     let changed = false;
     let structureChanged = false;
@@ -159,7 +200,12 @@ class Sheet {
           unit: '',
           cells: Array(this._rowCount).fill('')
         };
-        this._columns.push(col);
+        if (insertionCursor !== null) {
+          this._columns.splice(insertionCursor, 0, col);
+          insertionCursor += 1;
+        } else {
+          this._columns.push(col);
+        }
         structureChanged = true;
       } else {
         while (col.cells.length < this._rowCount) col.cells.push('');
@@ -190,6 +236,35 @@ class Sheet {
         }
       }
     });
+
+    if (reorderAfterAnchor && insertAfterKey) {
+      const anchorIdx = this._columns.findIndex(c => c.name.trim().toLowerCase() === insertAfterKey);
+      if (anchorIdx >= 0) {
+        const beforeOrder = this._columns.map(c => c.id).join('|');
+        const moveIds = [];
+        columnNames.forEach(rawName => {
+          const name = String(rawName).trim();
+          if (!name || name.toLowerCase() === insertAfterKey) return;
+          const col = this._findColumnByName(name);
+          if (!col || moveIds.includes(col.id)) return;
+          moveIds.push(col.id);
+        });
+
+        if (moveIds.length > 0) {
+          const moveSet = new Set(moveIds);
+          const movingCols = moveIds
+            .map(id => this._columns.find(c => c.id === id))
+            .filter(Boolean);
+          this._columns = this._columns.filter(c => !moveSet.has(c.id));
+          const anchorIdxNow = this._columns.findIndex(c => c.name.trim().toLowerCase() === insertAfterKey);
+          const insertIdx = anchorIdxNow >= 0 ? anchorIdxNow + 1 : this._columns.length;
+          this._columns.splice(insertIdx, 0, ...movingCols);
+
+          const afterOrder = this._columns.map(c => c.id).join('|');
+          if (afterOrder !== beforeOrder) structureChanged = true;
+        }
+      }
+    }
 
     if (!changed && !structureChanged) return;
     this._render();
@@ -761,16 +836,23 @@ class Sheet {
     js = js.replace(/\bPI\b/g, 'Math.PI');
 
     // Math functions
-    const mathFns = ['SQRT', 'ABS', 'LN', 'LOG', 'SIN', 'COS', 'TAN', 'EXP'];
+    const mathFns = ['SQRT', 'ABS', 'LN', 'LOG', 'EXP'];
     mathFns.forEach(fn => {
       const jsFn = fn === 'LN' ? 'Math.log' : fn === 'LOG' ? 'Math.log10' : `Math.${fn.toLowerCase()}`;
       js = js.replace(new RegExp(`\\b${fn}\\s*\\(`, 'g'), `${jsFn}(`);
     });
+    js = js.replace(/\bSIN\s*\(/g, '__SIN__(');
+    js = js.replace(/\bCOS\s*\(/g, '__COS__(');
+    js = js.replace(/\bTAN\s*\(/g, '__TAN__(');
 
     // Exponentiation
     js = js.replace(/\^/g, '**');
 
-    const result = new Function(`"use strict"; return (${js});`)();
+    const angleFactor = this._angleMode === 'deg' ? (Math.PI / 180) : 1;
+    const sinFn = (v) => Math.sin(v * angleFactor);
+    const cosFn = (v) => Math.cos(v * angleFactor);
+    const tanFn = (v) => Math.tan(v * angleFactor);
+    const result = new Function('__SIN__', '__COS__', '__TAN__', `"use strict"; return (${js});`)(sinFn, cosFn, tanFn);
     return typeof result === 'number' ? result : null;
   }
 

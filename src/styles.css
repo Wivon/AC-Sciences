@@ -292,6 +292,43 @@ html, body {
   color: #fff;
 }
 
+.angle-mode-switch {
+  margin-left: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.angle-mode-btn {
+  min-width: 40px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.angle-mode-btn:hover {
+  background: var(--primary-light);
+  color: var(--primary-dark);
+}
+
+.angle-mode-btn.selected {
+  background: var(--primary);
+  color: #fff;
+}
+
 #sheet-scroll-container {
   flex: 1;
   overflow: auto;
