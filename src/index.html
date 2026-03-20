@@ -20,13 +20,28 @@
         <span id="project-name-display">— Sans Nom</span>
       </div>
       <div id="tab-bar">
-        <button class="tab-btn" data-tab="video" title="Click Click Point Point">Pointage</button>
-        <button class="tab-btn active" data-tab="sheet">Tableur</button>
-        <button class="tab-btn" data-tab="graph">Graph</button>
+        <button class="tab-btn" data-tab="video" title="Click Click Point Point">
+          <span class="ui-icon tab-icon icon-camera-video" aria-hidden="true"></span>
+          <span>Pointage</span>
+        </button>
+        <button class="tab-btn active" data-tab="sheet">
+          <span class="ui-icon tab-icon icon-table" aria-hidden="true"></span>
+          <span>Tableur</span>
+        </button>
+        <button class="tab-btn" data-tab="graph">
+          <span class="ui-icon tab-icon icon-chart-data" aria-hidden="true"></span>
+          <span>Graph</span>
+        </button>
       </div>
       <div id="header-right">
-        <button id="open-btn" class="header-btn" title="Ouvrir (Ctrl+O)">Ouvrir</button>
-        <button id="save-btn" class="header-btn" title="Sauvegarder (Ctrl+S)">Sauvegarder</button>
+        <button id="open-btn" class="header-btn" title="Ouvrir (Ctrl+O)">
+          <span class="ui-icon header-btn-icon icon-upload" aria-hidden="true"></span>
+          <span>Ouvrir</span>
+        </button>
+        <button id="save-btn" class="header-btn" title="Sauvegarder (Ctrl+S)">
+          <span class="ui-icon header-btn-icon icon-save" aria-hidden="true"></span>
+          <span>Sauvegarder</span>
+        </button>
       </div>
     </header>
 
@@ -164,10 +179,18 @@
             </label>
             <div id="video-start-frame-value" class="video-small">Frame de départ: 0</div>
             <div class="video-frame-controls" role="group" aria-label="Navigation des frames">
-              <button id="video-frame-first-btn" class="video-frame-btn" type="button" title="Aller au début">|&lt;</button>
-              <button id="video-frame-prev-btn" class="video-frame-btn" type="button" title="Frame précédente">&lt;</button>
-              <button id="video-frame-next-btn" class="video-frame-btn" type="button" title="Frame suivante">&gt;</button>
-              <button id="video-frame-last-btn" class="video-frame-btn" type="button" title="Aller à la fin">&gt;|</button>
+              <button id="video-frame-first-btn" class="video-frame-btn" type="button" title="Aller au début">
+                <span class="ui-icon frame-btn-icon icon-first-page" aria-hidden="true"></span>
+              </button>
+              <button id="video-frame-prev-btn" class="video-frame-btn" type="button" title="Frame précédente">
+                <span class="ui-icon frame-btn-icon icon-fast-rewind" aria-hidden="true"></span>
+              </button>
+              <button id="video-frame-next-btn" class="video-frame-btn" type="button" title="Frame suivante">
+                <span class="ui-icon frame-btn-icon icon-fast-forward" aria-hidden="true"></span>
+              </button>
+              <button id="video-frame-last-btn" class="video-frame-btn" type="button" title="Aller à la fin">
+                <span class="ui-icon frame-btn-icon icon-last-page" aria-hidden="true"></span>
+              </button>
             </div>
             <button id="video-track-btn" class="sidebar-btn amber">4. Démarrer le pointage</button>
             <button id="video-undo-btn" class="sidebar-btn">Annuler le dernier point</button>
