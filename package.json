@@ -4,13 +4,23 @@
   "description": "Labo Claveille - Scientific Workbench",
   "main": "main.js",
   "scripts": {
-    "start": "env -u ELECTRON_RUN_AS_NODE electron ."
+    "start": "env -u ELECTRON_RUN_AS_NODE electron .",
+    "dist:win": "electron-builder --win portable --x64"
   },
   "devDependencies": {
-    "electron": "^41.0.3"
+    "electron": "^41.0.3",
+    "electron-builder": "^26.8.1"
   },
   "dependencies": {
     "chart.js": "^4.4.0",
     "ffmpeg-static": "^5.3.0"
+  },
+  "build": {
+    "appId": "fr.vecting.labo-claveille",
+    "productName": "Labo Claveille",
+    "win": {
+      "target": ["portable"],
+      "icon": "build/icon.ico"
+    }
   }
 }
