@@ -626,7 +626,8 @@ class VideoTracker {
         X: sorted.map(s => s.x),
         Y: sorted.map(s => s.y)
       },
-      { t: 's', X: 'm', Y: 'm' }
+      { t: 's', X: 'm', Y: 'm' },
+      { insertAfterName: 't', reorderAfterAnchor: true }
     );
   }
 

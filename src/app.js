@@ -55,7 +55,7 @@
         rowCount: 10
       },
       graph: {
-        xColumn: '',
+        xColumn: 'col_default_0',
         yColumn: '',
         showDerivative: false,
         regressionType: 'none'
