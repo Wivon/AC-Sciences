@@ -11,6 +11,7 @@
   let currentFilePath = null;
   let isDirty = false;
   let projectData = null;
+  let nameCounter = 1;
 
   // ─── DOM References ─────────────────────────────────────────────────────────
 
@@ -32,12 +33,14 @@
   const sheet = new Sheet(null, formulaInput, formulaCellRef);
   const graph = new Graph(sheet);
   const video = new VideoTracker(sheet);
+  const conversions = new Conversions();
 
   // ─── Project Management ──────────────────────────────────────────────────────
 
   function newProject() {
     currentFilePath = null;
     isDirty = false;
+    nameCounter = 1;
 
     const now = new Date().toISOString();
     projectData = {
@@ -60,7 +63,8 @@
         showDerivative: false,
         regressionType: 'none'
       },
-      video: {}
+      video: {},
+      conversions: {}
     };
 
     applyProject();
@@ -72,6 +76,7 @@
     graph.refreshColumns();
     graph.loadFromData(projectData.graph);
     video.loadFromData(projectData.video || {});
+    conversions.loadFromData(projectData.conversions || {});
     updateProjectNameDisplay(projectData.name);
   }
 
@@ -80,6 +85,7 @@
     projectData.sheet = sheet.toData();
     projectData.graph = graph.toData();
     projectData.video = video.toData();
+    projectData.conversions = conversions.toData();
     return projectData;
   }
 
@@ -147,6 +153,201 @@
     }
   }
 
+  function _decodeFileBuffer(base64) {
+    const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    let encoding = 'utf-8';
+    if (bytes.length >= 2) {
+      if (bytes[0] === 0xff && bytes[1] === 0xfe) encoding = 'utf-16le';
+      else if (bytes[0] === 0xfe && bytes[1] === 0xff) encoding = 'utf-16be';
+    }
+    if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+      encoding = 'utf-8';
+    }
+    let text = '';
+    try {
+      text = new TextDecoder(encoding).decode(bytes);
+    } catch (_e) {
+      text = new TextDecoder('utf-8').decode(bytes);
+    }
+    return { text, encoding };
+  }
+
+  function _extractLegacyCellBlock(text) {
+    const match = text.match(/\[cellules\][\s\S]*?data\s*=\s*"\s*\r?\n([\s\S]*?)\r?\n"\s*/i);
+    return match ? match[1] : '';
+  }
+
+  function _parseLegacyColumnLabel(label) {
+    const trimmed = (label || '').trim();
+    if (!trimmed) return { name: '', unit: '' };
+    const m = trimmed.match(/^(.*)\s+\(en\s+([^)]+)\)\s*$/i);
+    if (m) {
+      return { name: m[1].trim(), unit: m[2].trim() };
+    }
+    return { name: trimmed, unit: '' };
+  }
+
+  function _normalizeLegacyValue(raw) {
+    let v = (raw || '').trim();
+    if (!v) return '';
+    if (v.includes('<----')) return '';
+    v = v.replace(/×/g, '*').replace(/÷/g, '/');
+    v = v.replace(/(\d),(\d)/g, '$1.$2');
+    return v;
+  }
+
+  function _convertLegacyLab(text, sourcePath) {
+    const block = _extractLegacyCellBlock(text);
+    if (!block) return null;
+
+    const lines = block.split(/\r?\n/);
+    const colsById = new Map();
+    const colOrder = [];
+    const nameCounts = new Map();
+    let maxRow = 0;
+
+    const ensureColumn = (colId, name, unit) => {
+      let col = colsById.get(colId);
+      if (!col) {
+        col = { id: colId, name: '', unit: unit || '', cellsByRow: new Map() };
+        colsById.set(colId, col);
+        colOrder.push(colId);
+      }
+      if (name) {
+        let finalName = name.trim() || `Col ${nameCounter++}`;
+        const key = finalName.toLowerCase();
+        const count = nameCounts.get(key) || 0;
+        if (count > 0) {
+          finalName = `${finalName} ${count + 1}`;
+        }
+        nameCounts.set(key, count + 1);
+        col.name = finalName;
+      }
+      if (unit && !col.unit) col.unit = unit;
+      return col;
+    };
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const m = line.match(/^(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/);
+      if (!m) continue;
+      const rowIdx = parseInt(m[1], 10);
+      const colId = m[2];
+      const rest = m[4] || '';
+      const tokens = rest.split('|').map(t => t.trim());
+      const firstToken = tokens.find(t => t !== '');
+      if (!firstToken) continue;
+
+      if (rowIdx === 0) {
+        const { name, unit } = _parseLegacyColumnLabel(firstToken);
+        ensureColumn(colId, name, unit);
+        continue;
+      }
+
+      const value = _normalizeLegacyValue(firstToken);
+      if (!value) continue;
+      const col = ensureColumn(colId, '', '');
+      const targetRow = rowIdx - 1;
+      col.cellsByRow.set(targetRow, value);
+      if (targetRow + 1 > maxRow) maxRow = targetRow + 1;
+    }
+
+    if (colOrder.length === 0 || maxRow === 0) return null;
+
+    const columns = colOrder.map((colId, idx) => {
+      const col = colsById.get(colId);
+      const name = col && col.name ? col.name : `Col ${idx + 1}`;
+      const unit = col && col.unit ? col.unit : '';
+      const cells = Array.from({ length: maxRow }, () => '');
+      if (col && col.cellsByRow) {
+        col.cellsByRow.forEach((value, row) => {
+          if (row >= 0 && row < maxRow) cells[row] = value;
+        });
+      }
+      return { id: `col_import_${idx}`, name, unit, cells };
+    });
+
+    const xColumnName = columns.find(c => c.name.toLowerCase() === 't') ? 't' : (columns[0] ? columns[0].name : '');
+    const xCol = columns.find(c => c.name.toLowerCase() === xColumnName.toLowerCase());
+    const xColumnId = xCol ? xCol.id : (columns[0] ? columns[0].id : '');
+
+    const basename = sourcePath ? sourcePath.split(/[\\/]/).pop().replace(/\.lab$/i, '') : 'Untitled';
+    const now = new Date().toISOString();
+    return {
+      version: '1.0',
+      name: basename,
+      created: now,
+      modified: now,
+      sheet: {
+        columns,
+        rowCount: maxRow
+      },
+      graph: {
+        xColumn: xColumnId,
+        yColumn: '',
+        showDerivative: false,
+        regressionType: 'none'
+      },
+      video: {},
+      conversions: {}
+    };
+  }
+
+  function _makeConvertedPath(filePath) {
+    const sep = filePath.includes('\\') ? '\\' : '/';
+    const idx = filePath.lastIndexOf(sep);
+    const dir = idx >= 0 ? filePath.slice(0, idx) : '';
+    const base = idx >= 0 ? filePath.slice(idx + 1) : filePath;
+    const baseNoExt = base.replace(/\.lab$/i, '');
+    const nextName = `${baseNoExt}.new.lab`;
+    return dir ? `${dir}${sep}${nextName}` : nextName;
+  }
+
+  async function _loadProjectFromPath(filePath) {
+    if (!window.electronAPI || !filePath) return;
+    const rawRes = await window.electronAPI.readFileBuffer(filePath);
+    if (!rawRes.success) {
+      alert('Failed to open: ' + rawRes.error);
+      return;
+    }
+
+    const { text } = _decodeFileBuffer(rawRes.data);
+    let parsed = null;
+    try {
+      parsed = JSON.parse(text);
+    } catch (_e) {
+      parsed = null;
+    }
+
+    if (!parsed || typeof parsed !== 'object' || !parsed.sheet) {
+      const converted = _convertLegacyLab(text, filePath);
+      if (!converted) {
+        alert('Impossible de lire ce fichier .lab.');
+        return;
+      }
+      const newPath = _makeConvertedPath(filePath);
+      const json = JSON.stringify(converted, null, 2);
+      const saveRes = await window.electronAPI.saveFile(newPath, json);
+      if (!saveRes.success) {
+        alert('Conversion impossible: ' + saveRes.error);
+        return;
+      }
+      projectData = converted;
+      currentFilePath = newPath;
+      isDirty = false;
+      applyProject();
+      setTitle(projectData.name || 'Untitled');
+      return;
+    }
+
+    projectData = parsed;
+    currentFilePath = filePath;
+    isDirty = false;
+    applyProject();
+    setTitle(projectData.name || 'Untitled');
+  }
+
   async function openProject() {
     if (!window.electronAPI) return;
 
@@ -160,23 +361,15 @@
     });
     if (canceled || !filePaths || filePaths.length === 0) return;
 
-    const filePath = filePaths[0];
-    const result = await window.electronAPI.readFile(filePath);
-    if (!result.success) {
-      alert('Failed to open: ' + result.error);
-      return;
-    }
+    await _loadProjectFromPath(filePaths[0]);
+  }
 
-    try {
-      const data = JSON.parse(result.data);
-      projectData = data;
-      currentFilePath = filePath;
-      isDirty = false;
-      applyProject();
-      setTitle(projectData.name || 'Untitled');
-    } catch (e) {
-      alert('Invalid project file: ' + e.message);
+  async function openProjectFromPath(filePath) {
+    if (!window.electronAPI || !filePath) return;
+    if (isDirty) {
+      if (!confirm('Des modifications non sauvegardées seront perdues. Ouvrir quand même ?')) return;
     }
+    await _loadProjectFromPath(filePath);
   }
 
   async function exportCSV() {
@@ -304,6 +497,10 @@
     markDirty();
   });
 
+  document.addEventListener('conversions-data-changed', () => {
+    markDirty();
+  });
+
   // ─── Electron Menu Listeners ──────────────────────────────────────────────────
 
   if (window.electronAPI) {
@@ -324,6 +521,7 @@
     window.electronAPI.onMenuSave(() => saveProject(false));
     window.electronAPI.onMenuSaveAs(() => saveProject(true));
     window.electronAPI.onMenuExportCsv(() => exportCSV());
+    window.electronAPI.onOpenFile((filePath) => openProjectFromPath(filePath));
 
     window.electronAPI.onAppClosing(() => {
       const neverSaved = !currentFilePath;

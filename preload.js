@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   saveFile: (filePath, data) => ipcRenderer.invoke('save-file', { filePath, data }),
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
+  readFileBuffer: (filePath) => ipcRenderer.invoke('read-file-buffer', filePath),
   showSaveDialog: (options) => ipcRenderer.invoke('show-save-dialog', options),
   showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
   getPathForFile: (file) => {
@@ -19,6 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onMenuSave: (callback) => ipcRenderer.on('menu-save', callback),
   onMenuSaveAs: (callback) => ipcRenderer.on('menu-save-as', callback),
   onMenuExportCsv: (callback) => ipcRenderer.on('menu-export-csv', callback),
+  onOpenFile: (callback) => ipcRenderer.on('open-file', (_e, filePath) => callback(filePath)),
   onAppClosing: (callback) => ipcRenderer.on('app-closing', (_e) => callback()),
   confirmClose: () => ipcRenderer.send('confirm-close')
 });
