@@ -640,8 +640,8 @@ td.data-cell.fill-preview {
 }
 
 #graph-y-panel {
-  width: 125px;
-  min-width: 125px;
+  width: 175px;
+  min-width: 175px;
   background: #f8fafc;
   border-left: 1px solid var(--border);
   overflow-y: auto;
@@ -881,7 +881,7 @@ td.data-cell.fill-preview {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0;
 }
 
 .y-pill-main {
@@ -893,8 +893,9 @@ td.data-cell.fill-preview {
   justify-content: flex-start;
   text-align: left;
   padding: 5px 10px;
-  border-radius: 99px;
+  border-radius: 10px 0 0 10px;
   border: 1.5px solid var(--border-strong);
+  border-right: none;
   background: var(--surface);
   color: var(--text-muted);
   font-size: 12px;
@@ -930,6 +931,7 @@ td.data-cell.fill-preview {
 .y-pill-row.selected .y-pill-main {
   background: var(--primary);
   border-color: var(--primary);
+  border-right: none;
   color: #fff;
 }
 
@@ -944,10 +946,11 @@ td.data-cell.fill-preview {
 }
 
 .y-pill-menu-btn {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   border: 1.5px solid var(--border-strong);
-  border-radius: 99px;
+  border-radius: 0 10px 10px 0;
+  border-left: none;
   background: var(--surface);
   color: var(--text-muted);
   font-size: 11px;
@@ -965,7 +968,14 @@ td.data-cell.fill-preview {
 
 .y-pill-row.selected .y-pill-menu-btn {
   border-color: var(--primary);
-  color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+
+.y-pill-row.selected .y-pill-menu-btn:hover {
+  border-color: var(--primary-dark);
+  background: var(--primary-dark);
+  color: #fff;
 }
 
 .y-style-menu {
