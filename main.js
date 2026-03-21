@@ -7,6 +7,12 @@ const { pathToFileURL } = require('url');
 let ffmpegPath = null;
 try {
   ffmpegPath = require('ffmpeg-static');
+  if (typeof ffmpegPath === 'string') {
+    ffmpegPath = path.normalize(ffmpegPath);
+    if (ffmpegPath.includes('app.asar')) {
+      ffmpegPath = ffmpegPath.replace('app.asar', 'app.asar.unpacked');
+    }
+  }
 } catch (_e) {
   ffmpegPath = null;
 }
@@ -14,6 +20,39 @@ try {
 let mainWindow = null;
 let currentProjectName = 'Untitled';
 let allowClose = false;
+let pendingOpenFilePath = null;
+
+function extractLabPathFromArgv(argv) {
+  if (!Array.isArray(argv)) return null;
+  for (const arg of argv) {
+    if (typeof arg !== 'string') continue;
+    if (/\.lab$/i.test(arg) && fs.existsSync(arg)) return arg;
+  }
+  return null;
+}
+
+function dispatchOpenFile(filePath) {
+  if (!filePath) return;
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.send('open-file', filePath);
+  } else {
+    pendingOpenFilePath = filePath;
+  }
+}
+
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const filePath = extractLabPathFromArgv(argv);
+    if (filePath) dispatchOpenFile(filePath);
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -31,6 +70,13 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
+  mainWindow.webContents.on('did-finish-load', () => {
+    const initialPath = pendingOpenFilePath || extractLabPathFromArgv(process.argv);
+    if (initialPath) {
+      pendingOpenFilePath = null;
+      dispatchOpenFile(initialPath);
+    }
+  });
 
   mainWindow.on('close', (e) => {
     if (!allowClose) {
@@ -174,6 +220,15 @@ ipcMain.handle('read-file', async (event, filePath) => {
   }
 });
 
+ipcMain.handle('read-file-buffer', async (_event, filePath) => {
+  try {
+    const buf = fs.readFileSync(filePath);
+    return { success: true, data: buf.toString('base64') };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle('show-save-dialog', async (event, options) => {
   const result = await dialog.showSaveDialog(mainWindow, options);
   return result;
@@ -194,6 +249,9 @@ ipcMain.handle('transcode-video', async (_event, { inputPath }) => {
     }
     if (!ffmpegPath) {
       return { success: false, error: 'ffmpeg-unavailable' };
+    }
+    if (!fs.existsSync(ffmpegPath)) {
+      return { success: false, error: 'ffmpeg-missing', path: ffmpegPath };
     }
 
     const outName = `acsciences-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`;
@@ -264,6 +322,11 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
+});
+
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  dispatchOpenFile(filePath);
 });
 
 app.on('window-all-closed', () => {

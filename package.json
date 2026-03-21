@@ -1,11 +1,13 @@
 {
   "name": "ac-sciences",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Labo Claveille - Scientific Workbench",
   "main": "main.js",
   "scripts": {
     "start": "env -u ELECTRON_RUN_AS_NODE electron .",
-    "dist:win": "electron-builder --win portable --x64"
+    "dist:win": "electron-builder --win portable --x64",
+    "dist:mac": "electron-builder --mac dmg",
+    "dist": "electron-builder --mac dmg --win portable --x64"
   },
   "devDependencies": {
     "electron": "^41.0.3",
@@ -18,9 +20,49 @@
   "build": {
     "appId": "fr.vecting.labo-claveille",
     "productName": "Labo Claveille",
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**"
+    ],
+    "fileAssociations": [
+      {
+        "ext": "lab",
+        "name": "Labo Claveille Project",
+        "description": "Labo Claveille Project",
+        "role": "Editor"
+      }
+    ],
+    "directories": {
+      "buildResources": "build"
+    },
     "win": {
-      "target": ["portable"],
-      "icon": "build/icon.ico"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/logo.ico"
+    },
+    "mac": {
+      "target": ["dmg"],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/logo.icns"
+    },
+    "dmg": {
+      "title": "Labo Claveille",
+      "icon": "build/logo.icns",
+      "contents": [
+        { "x": 130, "y": 220, "type": "file" },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
     }
   }
 }
