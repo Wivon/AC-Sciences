@@ -32,6 +32,10 @@
           <span class="ui-icon tab-icon icon-chart-data" aria-hidden="true"></span>
           <span>Graph</span>
         </button>
+        <button class="tab-btn" data-tab="conversions">
+          <span class="ui-icon tab-icon icon-convert" aria-hidden="true"></span>
+          <span>Conversions</span>
+        </button>
       </div>
       <div id="header-right">
         <button id="open-btn" class="header-btn" title="Ouvrir (Ctrl+O)">
@@ -116,6 +120,11 @@
                 <option value="linear">Droite (y = mx + p)</option>
                 <option value="exponential">Exponentielle (y = a·eᵇˣ)</option>
                 <option value="parabola">Parabolique (y = ax² + bx + c)</option>
+                <option value="logarithmic_ln">Logarithmique ln (y = a·ln(x) + b)</option>
+                <option value="logarithmic_log10">Logarithmique log10 (y = a·log10(x) + b)</option>
+                <option value="inverse">Inverse (y = a/x + b)</option>
+                <option value="inverse_square">Inverse carré (y = a/x² + b)</option>
+                <option value="power">Puissance (y = a·xᵇ)</option>
               </select>
             </label>
             <button id="fit-curve-btn" class="sidebar-btn amber">Tracer</button>
@@ -212,6 +221,46 @@
         </main>
       </div>
     </div>
+
+    <!-- Tab: Conversions -->
+    <div id="tab-conversions" class="tab-content hidden">
+      <div id="conversions-layout">
+        <aside id="conversions-sidebar">
+          <h3>Familles</h3>
+          <div id="conv-category-list"></div>
+        </aside>
+        <main id="conversions-main">
+          <section class="conv-card">
+            <h2>Convertisseur universel</h2>
+            <p id="conv-category-description">Choisissez une famille puis convertissez instantanément.</p>
+
+            <div class="conv-translate">
+              <div class="conv-panel">
+                <label for="conv-unit-from">Unité source</label>
+                <select id="conv-unit-from"></select>
+                <label for="conv-input-from">Valeur source</label>
+                <input id="conv-input-from" class="conv-value-input" type="text" value="1" />
+              </div>
+
+              <div class="conv-swap-col">
+                <button id="conv-swap-btn" class="conv-swap-btn" type="button" title="Inverser les unités">
+                  <span class="ui-icon icon-convert" aria-hidden="true"></span>
+                </button>
+              </div>
+
+              <div class="conv-panel">
+                <label for="conv-unit-to">Unité cible</label>
+                <select id="conv-unit-to"></select>
+                <label for="conv-input-to">Valeur convertie</label>
+                <input id="conv-input-to" class="conv-value-input" type="text" value="" />
+              </div>
+            </div>
+
+            <div id="conv-formula" class="conv-formula">—</div>
+          </section>
+        </main>
+      </div>
+    </div>
   </div>
 
   <div id="about-popup" class="hidden" role="dialog" aria-modal="true" aria-labelledby="about-popup-title">
@@ -232,6 +281,7 @@
   <script src="sheet.js"></script>
   <script src="graph.js"></script>
   <script src="video.js"></script>
+  <script src="conversions.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

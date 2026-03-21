@@ -4,3 +4,6 @@
 /.claude
 
 **/.DS_Store
+
+/dist
+/misc

@@ -17,10 +17,12 @@ class Graph {
     this._yColorByColId = {};
     this._axisZoom = { x: null, y: null };
     this._axisDrag = null;
-    this._cursorMode = 'normal'; // normal | pointer
+    this._cursorMode = 'normal'; // normal | pointer | tangent
     this._pointerState = null;   // { xPx, yPx, xValue, values: [{label,color,y}] }
     this._pointerSeries = [];
     this._pointerXAxisLabel = 'X';
+    this._tangentLines = [];
+    this._tangentDraft = null;
     this._cursorMenuEl = null;
 
     this._xSelect = document.getElementById('x-axis-select');
@@ -111,7 +113,8 @@ class Graph {
     menu.className = 'chart-context-menu hidden';
     const options = [
       { mode: 'normal', label: 'Normal' },
-      { mode: 'pointer', label: 'Pointeur' }
+      { mode: 'pointer', label: 'Pointeur' },
+      { mode: 'tangent', label: 'Tangente' }
     ];
     options.forEach(({ mode, label }) => {
       const item = document.createElement('button');
@@ -126,6 +129,23 @@ class Graph {
       });
       menu.appendChild(item);
     });
+
+    const divider = document.createElement('div');
+    divider.className = 'chart-context-divider';
+    menu.appendChild(divider);
+
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'chart-context-item';
+    clearBtn.textContent = 'Effacer tangentes';
+    clearBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._tangentDraft = null;
+      this._tangentLines = [];
+      if (this._chart) this._chart.draw();
+      this._hideCursorMenu();
+    });
+    menu.appendChild(clearBtn);
     document.body.appendChild(menu);
     this._cursorMenuEl = menu;
     this._syncCursorMenuSelection();
@@ -165,15 +185,20 @@ class Graph {
   }
 
   _setCursorMode(mode) {
-    const next = mode === 'pointer' ? 'pointer' : 'normal';
+    const next = (mode === 'pointer' || mode === 'tangent') ? mode : 'normal';
     if (this._cursorMode === next) return;
     this._cursorMode = next;
     this._syncCursorMenuSelection();
     if (next !== 'pointer') {
       this._pointerState = null;
     }
+    if (next !== 'tangent') {
+      this._tangentDraft = null;
+    }
+    this._axisDrag = null;
+    document.body.style.cursor = '';
     if (this._chart) this._chart.draw();
-    if (next === 'pointer') {
+    if (next === 'pointer' || next === 'tangent') {
       this._canvas.style.cursor = 'crosshair';
     } else {
       this._canvas.style.cursor = 'default';
@@ -462,8 +487,13 @@ class Graph {
     this._axisZoom = { x: null, y: null };
     this._axisDrag = null;
     this._pointerState = null;
+    this._tangentDraft = null;
+    this._tangentLines = [];
     document.body.style.cursor = '';
-    this._setCursorMode(graphData && graphData.cursorMode === 'pointer' ? 'pointer' : 'normal');
+    const savedCursorMode = graphData && (graphData.cursorMode === 'pointer' || graphData.cursorMode === 'tangent')
+      ? graphData.cursorMode
+      : 'normal';
+    this._setCursorMode(savedCursorMode);
     if (graphData.originX !== undefined && graphData.originX !== null) {
       this._originXInput.value = String(graphData.originX);
     }
@@ -580,6 +610,8 @@ class Graph {
     this._axisZoom = { x: null, y: null };
     this._closeAllSeriesMenus();
     this._pointerState = null;
+    this._tangentDraft = null;
+    document.body.style.cursor = '';
     this._regressionCoeffs = null;
     this._regressionResult.classList.remove('visible');
     if (xChanged) this.refreshColumns();
@@ -757,7 +789,7 @@ class Graph {
         data: { datasets },
         plugins: [{
           id: 'cursor-pointer-overlay',
-          afterDatasetsDraw: (chart) => this._drawPointerOverlay(chart)
+          afterDatasetsDraw: (chart) => this._drawCursorOverlays(chart)
         }],
         options: {
           responsive: true,
@@ -829,6 +861,11 @@ class Graph {
     return null;
   }
 
+  _drawCursorOverlays(chart) {
+    this._drawTangentOverlay(chart);
+    this._drawPointerOverlay(chart);
+  }
+
   _drawPointerOverlay(chart) {
     if (this._cursorMode !== 'pointer' || !this._pointerState || !chart || !chart.chartArea) return;
     const area = chart.chartArea;
@@ -891,6 +928,88 @@ class Graph {
     ctx.restore();
   }
 
+  _drawTangentOverlay(chart) {
+    if (!chart || !chart.chartArea || !chart.scales || !chart.scales.x || !chart.scales.y) return;
+    const lines = [...this._tangentLines];
+    if (this._tangentDraft) lines.push(this._tangentDraft);
+    if (lines.length === 0) return;
+
+    const area = chart.chartArea;
+    const xScale = chart.scales.x;
+    const yScale = chart.scales.y;
+    const ctx = chart.ctx;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(area.left, area.top, area.right - area.left, area.bottom - area.top);
+    ctx.clip();
+
+    lines.forEach((line, idx) => {
+      if (!line || !Number.isFinite(line.x1) || !Number.isFinite(line.y1) || !Number.isFinite(line.x2) || !Number.isFinite(line.y2)) return;
+      const x1 = xScale.getPixelForValue(line.x1);
+      const y1 = yScale.getPixelForValue(line.y1);
+      const x2 = xScale.getPixelForValue(line.x2);
+      const y2 = yScale.getPixelForValue(line.y2);
+      if (!Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(x2) || !Number.isFinite(y2)) return;
+      if (Math.hypot(x2 - x1, y2 - y1) < 4) return;
+
+      const isDraft = idx === lines.length - 1 && this._tangentDraft === line;
+      ctx.strokeStyle = isDraft ? 'rgba(239,68,68,0.75)' : 'rgba(239,68,68,0.95)';
+      ctx.lineWidth = isDraft ? 2 : 2.4;
+      ctx.setLineDash(isDraft ? [6, 4] : []);
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+      ctx.fillStyle = isDraft ? 'rgba(239,68,68,0.75)' : 'rgba(239,68,68,0.95)';
+      ctx.beginPath();
+      ctx.arc(x1, y1, 3.2, 0, Math.PI * 2);
+      ctx.arc(x2, y2, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    ctx.restore();
+  }
+
+  _getChartValuePointFromMouseEvent(e, { clampToPlot = false } = {}) {
+    if (!this._chart || !this._chart.chartArea || !this._chart.scales || !this._chart.scales.x || !this._chart.scales.y) {
+      return null;
+    }
+    const rect = this._canvas.getBoundingClientRect();
+    const area = this._chart.chartArea;
+    const rawX = e.clientX - rect.left;
+    const rawY = e.clientY - rect.top;
+    const inPlot = rawX >= area.left && rawX <= area.right && rawY >= area.top && rawY <= area.bottom;
+    if (!inPlot && !clampToPlot) return null;
+
+    const xPx = clampToPlot ? Math.max(area.left, Math.min(area.right, rawX)) : rawX;
+    const yPx = clampToPlot ? Math.max(area.top, Math.min(area.bottom, rawY)) : rawY;
+    const x = this._chart.scales.x.getValueForPixel(xPx);
+    const y = this._chart.scales.y.getValueForPixel(yPx);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+    return { x, y, xPx, yPx, inPlot };
+  }
+
+  _pushTangentLine(line) {
+    if (!line || !this._chart || !this._chart.scales || !this._chart.scales.x || !this._chart.scales.y) return;
+    const xScale = this._chart.scales.x;
+    const yScale = this._chart.scales.y;
+    const x1 = xScale.getPixelForValue(line.x1);
+    const y1 = yScale.getPixelForValue(line.y1);
+    const x2 = xScale.getPixelForValue(line.x2);
+    const y2 = yScale.getPixelForValue(line.y2);
+    if (![x1, y1, x2, y2].every(Number.isFinite)) return;
+    if (Math.hypot(x2 - x1, y2 - y1) < 4) return;
+
+    this._tangentLines.push({ ...line });
+    if (this._tangentLines.length > 2) {
+      this._tangentLines = this._tangentLines.slice(this._tangentLines.length - 2);
+    }
+  }
+
   _getAxisOriginValue(mode, fallbackValue = 0) {
     const input = mode === 'x' ? this._originXInput : this._originYInput;
     const raw = input ? String(input.value).trim().replace(',', '.') : '';
@@ -900,6 +1019,22 @@ class Graph {
   }
 
   _onCanvasMouseDown(e) {
+    if (e.button !== 0) return;
+
+    if (this._cursorMode === 'tangent') {
+      const start = this._getChartValuePointFromMouseEvent(e);
+      if (start && start.inPlot) {
+        e.preventDefault();
+        this._axisDrag = null;
+        this._pointerState = null;
+        this._tangentDraft = { x1: start.x, y1: start.y, x2: start.x, y2: start.y };
+        this._canvas.style.cursor = 'crosshair';
+        document.body.style.cursor = 'crosshair';
+        if (this._chart) this._chart.draw();
+        return;
+      }
+    }
+
     const mode = this._getAxisDragMode(e);
     if (!mode || !this._chart) return;
     const scale = this._chart.scales[mode];
@@ -924,6 +1059,14 @@ class Graph {
 
   _onCanvasMouseMove(e) {
     if (this._axisDrag) return;
+    if (this._tangentDraft) {
+      const point = this._getChartValuePointFromMouseEvent(e, { clampToPlot: true });
+      if (!point) return;
+      this._tangentDraft.x2 = point.x;
+      this._tangentDraft.y2 = point.y;
+      if (this._chart) this._chart.draw();
+      return;
+    }
     if (this._cursorMode === 'pointer') {
       this._canvas.style.cursor = 'crosshair';
       this._updatePointerStateFromMouseEvent(e);
@@ -931,14 +1074,23 @@ class Graph {
       return;
     }
     this._pointerState = null;
+    if (this._cursorMode === 'tangent') {
+      const point = this._getChartValuePointFromMouseEvent(e);
+      if (point && point.inPlot) {
+        this._canvas.style.cursor = 'crosshair';
+      } else {
+        this._updateAxisCursor(e);
+      }
+      return;
+    }
     this._updateAxisCursor(e);
   }
 
   _onCanvasMouseLeave() {
-    if (this._axisDrag) return;
+    if (this._axisDrag || this._tangentDraft) return;
     this._pointerState = null;
     if (this._chart) this._chart.draw();
-    if (this._cursorMode === 'pointer') {
+    if (this._cursorMode === 'pointer' || this._cursorMode === 'tangent') {
       this._canvas.style.cursor = 'default';
       return;
     }
@@ -946,6 +1098,16 @@ class Graph {
   }
 
   _onGlobalMouseMove(e) {
+    if (this._tangentDraft) {
+      e.preventDefault();
+      const point = this._getChartValuePointFromMouseEvent(e, { clampToPlot: true });
+      if (!point) return;
+      this._tangentDraft.x2 = point.x;
+      this._tangentDraft.y2 = point.y;
+      if (this._chart) this._chart.draw();
+      return;
+    }
+
     if (!this._axisDrag) return;
     e.preventDefault();
 
@@ -978,10 +1140,37 @@ class Graph {
   }
 
   _onGlobalMouseUp(e) {
+    if (this._tangentDraft) {
+      const point = this._getChartValuePointFromMouseEvent(e, { clampToPlot: true });
+      if (point) {
+        this._tangentDraft.x2 = point.x;
+        this._tangentDraft.y2 = point.y;
+      }
+      const tangent = this._tangentDraft;
+      this._tangentDraft = null;
+      this._pushTangentLine(tangent);
+
+      document.body.style.cursor = '';
+      if (this._cursorMode === 'pointer') {
+        this._canvas.style.cursor = 'crosshair';
+      } else if (this._cursorMode === 'tangent') {
+        if (point && point.inPlot) {
+          this._canvas.style.cursor = 'crosshair';
+        } else {
+          this._updateAxisCursor(e);
+        }
+      } else {
+        this._updateAxisCursor(e);
+      }
+
+      if (this._chart) this._chart.draw();
+      return;
+    }
+
     if (!this._axisDrag) return;
     this._axisDrag = null;
     document.body.style.cursor = '';
-    if (this._cursorMode === 'pointer') {
+    if (this._cursorMode === 'pointer' || this._cursorMode === 'tangent') {
       this._canvas.style.cursor = 'crosshair';
       return;
     }
@@ -1113,9 +1302,14 @@ class Graph {
     let result = null;
 
     switch (type) {
-      case 'linear':     result = this._fitLinear(sorted); break;
+      case 'linear':      result = this._fitLinear(sorted); break;
       case 'exponential': result = this._fitExponential(sorted); break;
-      case 'parabola':   result = this._fitParabola(sorted); break;
+      case 'parabola':    result = this._fitParabola(sorted); break;
+      case 'logarithmic_ln':    result = this._fitLogarithmicLn(sorted); break;
+      case 'logarithmic_log10': result = this._fitLogarithmicLog10(sorted); break;
+      case 'inverse':           result = this._fitInverse(sorted); break;
+      case 'inverse_square':    result = this._fitInverseSquare(sorted); break;
+      case 'power':             result = this._fitPower(sorted); break;
     }
 
     if (!result) {
@@ -1135,6 +1329,7 @@ class Graph {
   _fitLinear(points) {
     // y = ax + b, least squares
     const n = points.length;
+    if (n < 2) return null;
     let sumX = 0, sumY = 0, sumXX = 0, sumXY = 0;
     points.forEach(({ x, y }) => {
       sumX += x; sumY += y; sumXX += x * x; sumXY += x * y;
@@ -1189,6 +1384,58 @@ class Graph {
     return { coeffs: { a, b, c } };
   }
 
+  _fitLogarithmicLn(points) {
+    // y = a·ln(x) + b
+    const transformed = points
+      .filter(p => p.x > 0)
+      .map(p => ({ x: Math.log(p.x), y: p.y }));
+    const linear = this._fitLinear(transformed);
+    if (!linear) return null;
+    return { coeffs: { a: linear.coeffs.a, b: linear.coeffs.b } };
+  }
+
+  _fitLogarithmicLog10(points) {
+    // y = a·log10(x) + b
+    const transformed = points
+      .filter(p => p.x > 0)
+      .map(p => ({ x: Math.log10(p.x), y: p.y }));
+    const linear = this._fitLinear(transformed);
+    if (!linear) return null;
+    return { coeffs: { a: linear.coeffs.a, b: linear.coeffs.b } };
+  }
+
+  _fitInverse(points) {
+    // y = a/x + b
+    const transformed = points
+      .filter(p => Math.abs(p.x) > 1e-12)
+      .map(p => ({ x: 1 / p.x, y: p.y }));
+    const linear = this._fitLinear(transformed);
+    if (!linear) return null;
+    return { coeffs: { a: linear.coeffs.a, b: linear.coeffs.b } };
+  }
+
+  _fitInverseSquare(points) {
+    // y = a/x² + b
+    const transformed = points
+      .filter(p => Math.abs(p.x) > 1e-12)
+      .map(p => ({ x: 1 / (p.x * p.x), y: p.y }));
+    const linear = this._fitLinear(transformed);
+    if (!linear) return null;
+    return { coeffs: { a: linear.coeffs.a, b: linear.coeffs.b } };
+  }
+
+  _fitPower(points) {
+    // y = a·x^b, linearize: ln(y) = ln(a) + b·ln(x)
+    const transformed = points
+      .filter(p => p.x > 0 && p.y > 0)
+      .map(p => ({ x: Math.log(p.x), y: Math.log(p.y) }));
+    const linear = this._fitLinear(transformed);
+    if (!linear) return null;
+    const a = Math.exp(linear.coeffs.b);
+    const b = linear.coeffs.a;
+    return { coeffs: { a, b } };
+  }
+
   /** Solves a 3x4 augmented matrix (3 equations, 3 unknowns) via Gaussian elimination. */
   _gaussianElim3(aug) {
     const m = aug.map(row => [...row]); // deep copy
@@ -1228,20 +1475,30 @@ class Graph {
     if (!this._regressionCoeffs) return null;
     const { a, b, c } = this._regressionCoeffs;
     switch (this._regressionType) {
-      case 'linear':      return a * x + b;
-      case 'exponential': return a * Math.exp(b * x);
-      case 'parabola':    return a * x * x + b * x + c;
+      case 'linear':            return a * x + b;
+      case 'exponential':       return a * Math.exp(b * x);
+      case 'parabola':          return a * x * x + b * x + c;
+      case 'logarithmic_ln':    return x > 0 ? (a * Math.log(x) + b) : null;
+      case 'logarithmic_log10': return x > 0 ? (a * Math.log10(x) + b) : null;
+      case 'inverse':           return Math.abs(x) > 1e-12 ? (a / x + b) : null;
+      case 'inverse_square':    return Math.abs(x) > 1e-12 ? (a / (x * x) + b) : null;
+      case 'power':             return x > 0 ? (a * Math.pow(x, b)) : null;
       default: return null;
     }
   }
 
   _computeR2(points, type, coeffs) {
-    const yMean = points.reduce((s, p) => s + p.y, 0) / points.length;
-    let ssTot = 0, ssRes = 0;
-    points.forEach(({ x, y }) => {
+    const valid = points
+      .map(({ x, y }) => ({ x, y, pred: this._evalRegressionWith(x, type, coeffs) }))
+      .filter(p => p.pred !== null && Number.isFinite(p.pred));
+    if (valid.length === 0) return NaN;
+
+    const yMean = valid.reduce((s, p) => s + p.y, 0) / valid.length;
+    let ssTot = 0;
+    let ssRes = 0;
+    valid.forEach(({ y, pred }) => {
       ssTot += (y - yMean) ** 2;
-      const pred = this._evalRegressionWith(x, type, coeffs);
-      if (pred !== null) ssRes += (y - pred) ** 2;
+      ssRes += (y - pred) ** 2;
     });
     return ssTot === 0 ? 1 : 1 - ssRes / ssTot;
   }
@@ -1249,9 +1506,14 @@ class Graph {
   _evalRegressionWith(x, type, coeffs) {
     const { a, b, c } = coeffs;
     switch (type) {
-      case 'linear':      return a * x + b;
-      case 'exponential': return a * Math.exp(b * x);
-      case 'parabola':    return a * x * x + b * x + c;
+      case 'linear':            return a * x + b;
+      case 'exponential':       return a * Math.exp(b * x);
+      case 'parabola':          return a * x * x + b * x + c;
+      case 'logarithmic_ln':    return x > 0 ? (a * Math.log(x) + b) : null;
+      case 'logarithmic_log10': return x > 0 ? (a * Math.log10(x) + b) : null;
+      case 'inverse':           return Math.abs(x) > 1e-12 ? (a / x + b) : null;
+      case 'inverse_square':    return Math.abs(x) > 1e-12 ? (a / (x * x) + b) : null;
+      case 'power':             return x > 0 ? (a * Math.pow(x, b)) : null;
       default: return null;
     }
   }
@@ -1271,6 +1533,16 @@ class Graph {
         return `y = ${fmt(a)}·e^(${fmt(b)}·x)`;
       case 'parabola':
         return `y = ${fmt(a)}·x² ${sign(b)}·x ${sign(c)}`;
+      case 'logarithmic_ln':
+        return `y = ${fmt(a)}·ln(x) ${sign(b)}`;
+      case 'logarithmic_log10':
+        return `y = ${fmt(a)}·log10(x) ${sign(b)}`;
+      case 'inverse':
+        return `y = ${fmt(a)}/x ${sign(b)}`;
+      case 'inverse_square':
+        return `y = ${fmt(a)}/x² ${sign(b)}`;
+      case 'power':
+        return `y = ${fmt(a)}·x^${fmt(b)}`;
       default:
         return '';
     }

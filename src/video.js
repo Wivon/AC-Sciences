@@ -219,7 +219,9 @@ class VideoTracker {
         const details = result && result.stderr ? `\n${result.stderr}` : '';
         const extra = reason === 'ffmpeg-unavailable'
           ? '\nLe binaire ffmpeg n\'est pas disponible dans l\'application.'
-          : '';
+          : (reason === 'ffmpeg-missing' && result && result.path
+            ? `\nChemin ffmpeg introuvable: ${result.path}`
+            : '');
         alert(`Conversion AVI -> MP4 impossible (${reason}).${extra}${details ? '\nVoir console pour les détails.' : ''}`);
         this._resetVideo(false);
         return;
