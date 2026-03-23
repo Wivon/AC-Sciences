@@ -57,6 +57,7 @@ class VideoTracker {
     this._mode = 'idle';   // idle | set-origin | set-scale | tracking
     this._scaleDrag = null;
     this._skipNextClick = false;
+    this._hoverVideoPoint = null;
 
     this._bindEvents();
     this._resizeCanvas();
@@ -153,6 +154,8 @@ class VideoTracker {
 
     this._setOriginBtn.addEventListener('click', () => this._toggleMode('set-origin'));
     this._setScaleBtn.addEventListener('click', () => this._toggleMode('set-scale'));
+    this._scaleInput.addEventListener('input', () => this._onScaleInputChanged());
+    this._scaleInput.addEventListener('change', () => this._onScaleInputChanged());
     this._trackBtn.addEventListener('click', () => this._toggleTracking());
     this._startFrameInput.addEventListener('input', () => this._goToStartFrame());
     this._startFrameInput.addEventListener('change', () => this._goToStartFrame());
@@ -386,6 +389,7 @@ class VideoTracker {
   _setMode(mode) {
     this._mode = mode;
     this._scaleDrag = null;
+    this._hoverVideoPoint = null;
     this._setOriginBtn.classList.toggle('active', this._mode === 'set-origin');
     this._setScaleBtn.classList.toggle('active', this._mode === 'set-scale');
     this._trackBtn.classList.toggle('active', this._mode === 'tracking');
@@ -452,6 +456,14 @@ class VideoTracker {
       return;
     }
 
+    if (this._mode === 'tracking') {
+      const videoPoint = this._canvasToVideoPoint(this._eventToCanvasPoint(e));
+      this._hoverVideoPoint = videoPoint || null;
+      this._render();
+    } else {
+      this._hoverVideoPoint = null;
+    }
+
     if (this._mode === 'set-origin' || this._mode === 'set-scale' || this._mode === 'tracking') {
       this._canvas.style.cursor = 'crosshair';
     } else {
@@ -469,6 +481,10 @@ class VideoTracker {
 
   _onCanvasMouseLeave() {
     if (!this._scaleDrag) this._canvas.style.cursor = 'default';
+    if (this._hoverVideoPoint) {
+      this._hoverVideoPoint = null;
+      this._render();
+    }
   }
 
   async _onCanvasClick(e) {
@@ -524,6 +540,20 @@ class VideoTracker {
     this._setMode('idle');
     this._updateStatusUI();
     this._emitChange();
+  }
+
+  _onScaleInputChanged() {
+    if (!this._scale || !isFinite(this._scale.pixels) || this._scale.pixels <= 0) return;
+    const parsed = this._parseDistanceInput(this._scaleInput.value);
+    if (!parsed) return;
+    this._scale = {
+      ...this._scale,
+      meters: parsed.meters,
+      metersPerPx: parsed.meters / this._scale.pixels
+    };
+    this._updateStatusUI();
+    this._emitChange();
+    this._render();
   }
 
   // ─── Tracking ───────────────────────────────────────────────────────────────
@@ -831,7 +861,7 @@ class VideoTracker {
   }
 
   _parseDistanceInput(rawValue) {
-    const raw = String(rawValue || '').trim().replace(',', '.');
+    const raw = String(rawValue || '').trim().replace(/,/g, '.');
     const m = raw.match(/^([0-9]+(?:\.[0-9]+)?)\s*([A-Za-z]*)$/);
     if (!m) return null;
     const value = parseFloat(m[1]);
@@ -931,6 +961,47 @@ class VideoTracker {
     ctx.restore();
   }
 
+  _drawMagnifier(videoPoint, rect) {
+    if (!videoPoint || !rect) return;
+    const zoom = 12;
+    const size = 450;
+    const srcSize = size / zoom;
+    const videoW = this._video.videoWidth || 0;
+    const videoH = this._video.videoHeight || 0;
+    if (!videoW || !videoH) return;
+
+    let sx = videoPoint.x - srcSize / 2;
+    let sy = videoPoint.y - srcSize / 2;
+    sx = Math.max(0, Math.min(videoW - srcSize, sx));
+    sy = Math.max(0, Math.min(videoH - srcSize, sy));
+
+    let dx = rect.x + rect.w - size - 10;
+    let dy = rect.y + 10;
+    if (dx < rect.x + 6) dx = rect.x + 6;
+    if (dy + size > rect.y + rect.h - 6) dy = rect.y + rect.h - size - 6;
+
+    const ctx = this._ctx;
+    ctx.save();
+    ctx.fillStyle = 'rgba(15,23,42,0.85)';
+    ctx.fillRect(dx - 4, dy - 4, size + 8, size + 8);
+    ctx.drawImage(this._video, sx, sy, srcSize, srcSize, dx, dy, size, size);
+    ctx.strokeStyle = 'rgba(148,163,184,0.8)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(dx, dy, size, size);
+
+    const cx = dx + size / 2;
+    const cy = dy + size / 2;
+    ctx.strokeStyle = 'rgba(248,250,252,0.9)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, cy);
+    ctx.lineTo(cx + 10, cy);
+    ctx.moveTo(cx, cy - 10);
+    ctx.lineTo(cx, cy + 10);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   _render() {
     if (!this._ctx) return;
     const ctx = this._ctx;
@@ -986,6 +1057,10 @@ class VideoTracker {
     ctx.fillText(`Frame ${this._currentFrame} / ${Math.max(0, this._frameCount - 1)}`, rect.x + 14, rect.y + 28);
     ctx.fillText(`t = ${this._frameTime(this._currentFrame).toFixed(4)} s`, rect.x + 14, rect.y + 46);
     ctx.restore();
+
+    if (this._mode === 'tracking' && this._hoverVideoPoint) {
+      this._drawMagnifier(this._hoverVideoPoint, rect);
+    }
 
     this._updateStatusUI();
   }
