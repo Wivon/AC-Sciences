@@ -772,7 +772,7 @@ class Sheet {
     if (!col) return null;
     const raw = col.cells[row] || '';
     if (!raw.startsWith('=')) {
-      const n = parseFloat(raw);
+      const n = parseFloat(String(raw).replace(/,/g, '.'));
       return isNaN(n) ? (raw === '' ? '' : raw) : n;
     }
     try {
@@ -797,6 +797,10 @@ class Sheet {
     });
 
     js = this._normalizeKeywords(js);
+
+    // Normalize decimal commas and common unicode operators in formulas.
+    js = js.replace(/(\d),(\d)/g, '$1.$2');
+    js = js.replace(/×/g, '*').replace(/÷/g, '/');
 
     // Replace aggregate functions: SUM([col]), AVG([col]), MIN([col]), MAX([col]), COUNT([col])
     const aggregateFns = ['SUM', 'AVG', 'MIN', 'MAX', 'COUNT'];
