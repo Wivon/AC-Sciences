@@ -778,6 +778,7 @@ class Sheet {
     try {
       return this._evalFormula(raw.slice(1), row);
     } catch (e) {
+      console.warn('[Sheet] Formula error', { formula: raw, row, error: e });
       return null;
     }
   }
@@ -793,7 +794,7 @@ class Sheet {
       const col = this._findColumnByName(colName);
       if (!col) return 'NaN';
       const v = this._evalCell(col.id, targetRow);
-      return (typeof v === 'number' && isFinite(v)) ? String(v) : 'NaN';
+      return (typeof v === 'number' && isFinite(v)) ? `(${String(v)})` : 'NaN';
     });
 
     js = this._normalizeKeywords(js);
@@ -801,6 +802,8 @@ class Sheet {
     // Normalize decimal commas and common unicode operators in formulas.
     js = js.replace(/(\d),(\d)/g, '$1.$2');
     js = js.replace(/×/g, '*').replace(/÷/g, '/');
+    js = js.replace(/[\u2212\u2013\u2014]/g, '-');
+    js = js.replace(/\u00a0/g, ' ');
 
     // Replace aggregate functions: SUM([col]), AVG([col]), MIN([col]), MAX([col]), COUNT([col])
     const aggregateFns = ['SUM', 'AVG', 'MIN', 'MAX', 'COUNT'];
@@ -825,7 +828,7 @@ class Sheet {
       const col = this._findColumnByName(colName);
       if (!col) return 'NaN';
       const v = this._evalCell(col.id, row - 1);
-      return (typeof v === 'number' && isFinite(v)) ? String(v) : 'NaN';
+      return (typeof v === 'number' && isFinite(v)) ? `(${String(v)})` : 'NaN';
     });
 
     // Replace [ColName] → value at current row
@@ -833,7 +836,7 @@ class Sheet {
       const col = this._findColumnByName(colName);
       if (!col) return 'NaN';
       const v = this._evalCell(col.id, row);
-      return (typeof v === 'number' && isFinite(v)) ? String(v) : 'NaN';
+      return (typeof v === 'number' && isFinite(v)) ? `(${String(v)})` : 'NaN';
     });
 
     // PI constant
