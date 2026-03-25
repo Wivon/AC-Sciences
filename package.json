@@ -29,6 +29,12 @@
     "asarUnpack": [
       "node_modules/ffmpeg-static/**"
     ],
+    "extraResources": [
+      {
+        "from": "node_modules/ffmpeg-static",
+        "to": "ffmpeg-static"
+      }
+    ],
     "fileAssociations": [
       {
         "ext": "lab",

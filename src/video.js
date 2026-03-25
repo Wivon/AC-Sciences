@@ -226,6 +226,9 @@ class VideoTracker {
             ? `\nChemin ffmpeg introuvable: ${result.path}`
             : '');
         alert(`Conversion AVI -> MP4 impossible (${reason}).${extra}${details ? '\nVoir console pour les détails.' : ''}`);
+        if (result && result.diagnostics) {
+          console.warn('[VideoTracker] ffmpeg diagnostics', result.diagnostics);
+        }
         this._resetVideo(false);
         return;
       }

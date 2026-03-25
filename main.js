@@ -4,17 +4,67 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const { pathToFileURL } = require('url');
 
-let ffmpegPath = null;
-try {
-  ffmpegPath = require('ffmpeg-static');
-  if (typeof ffmpegPath === 'string') {
-    ffmpegPath = path.normalize(ffmpegPath);
-    if (ffmpegPath.includes('app.asar')) {
-      ffmpegPath = ffmpegPath.replace('app.asar', 'app.asar.unpacked');
+function resolveFfmpegPath() {
+  const exeName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+  const candidates = [];
+  let pkgPath = null;
+  try {
+    pkgPath = require('ffmpeg-static');
+  } catch (_e) {
+    pkgPath = null;
+  }
+  if (typeof pkgPath === 'string') {
+    candidates.push(pkgPath);
+    if (pkgPath.includes('app.asar')) {
+      candidates.push(pkgPath.replace('app.asar', 'app.asar.unpacked'));
     }
   }
-} catch (_e) {
-  ffmpegPath = null;
+  const resources = process.resourcesPath || '';
+  if (resources) {
+    candidates.push(path.join(resources, 'ffmpeg-static', exeName));
+    candidates.push(path.join(resources, 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', exeName));
+    candidates.push(path.join(resources, 'node_modules', 'ffmpeg-static', exeName));
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'string') continue;
+    const normalized = path.normalize(candidate);
+    if (fs.existsSync(normalized)) return normalized;
+  }
+  return null;
+}
+function getFfmpegDiagnostics() {
+  const exeName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+  const resources = process.resourcesPath || '';
+  const appPath = app.getAppPath ? app.getAppPath() : '';
+  const candidates = [];
+  let pkgPath = null;
+  try {
+    pkgPath = require('ffmpeg-static');
+  } catch (_e) {
+    pkgPath = null;
+  }
+  if (typeof pkgPath === 'string') {
+    candidates.push(pkgPath);
+    if (pkgPath.includes('app.asar')) {
+      candidates.push(pkgPath.replace('app.asar', 'app.asar.unpacked'));
+    }
+  }
+  if (resources) {
+    candidates.push(path.join(resources, 'ffmpeg-static', exeName));
+    candidates.push(path.join(resources, 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', exeName));
+    candidates.push(path.join(resources, 'node_modules', 'ffmpeg-static', exeName));
+  }
+  return {
+    exeName,
+    resources,
+    appPath,
+    pkgPath,
+    candidates: candidates.map(p => ({
+      path: p,
+      exists: !!(p && fs.existsSync(p))
+    }))
+  };
 }
 
 let mainWindow = null;
@@ -257,11 +307,9 @@ ipcMain.handle('transcode-video', async (_event, { inputPath }) => {
     if (!fs.existsSync(inputPath)) {
       return { success: false, error: 'input-file-not-found' };
     }
+    const ffmpegPath = resolveFfmpegPath();
     if (!ffmpegPath) {
-      return { success: false, error: 'ffmpeg-unavailable' };
-    }
-    if (!fs.existsSync(ffmpegPath)) {
-      return { success: false, error: 'ffmpeg-missing', path: ffmpegPath };
+      return { success: false, error: 'ffmpeg-unavailable', diagnostics: getFfmpegDiagnostics() };
     }
 
     const outName = `acsciences-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`;
