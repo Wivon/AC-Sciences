@@ -37,6 +37,7 @@ class Sheet {
     this._angleModeSwitch = document.getElementById('angle-mode-switch');
     this._angleModeDegBtn = document.getElementById('angle-mode-deg-btn');
     this._angleModeRadBtn = document.getElementById('angle-mode-rad-btn');
+    this._contextMenuEl = null;
 
     // Del / Backspace clears selected cells when not editing an input
     document.addEventListener('keydown', (e) => {
@@ -83,6 +84,18 @@ class Sheet {
       this._angleModeRadBtn.addEventListener('click', () => this._setAngleMode('rad', { reEval: true, emitChange: true }));
     }
     this._syncAngleModeUI();
+
+    this._buildContextMenu();
+    this._tableEl.addEventListener('contextmenu', (e) => this._onContextMenu(e));
+    document.addEventListener('click', (e) => {
+      const target = e.target;
+      if (!(target instanceof Element) || !target.closest('#sheet-context-menu')) {
+        this._hideContextMenu();
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this._hideContextMenu();
+    });
   }
 
   // ─── Public API ─────────────────────────────────────────────────────────────
@@ -331,6 +344,95 @@ class Sheet {
     input.selectionStart = input.selectionEnd = start + ref.length;
     input.dispatchEvent(new Event('input'));
     input.focus();
+  }
+
+  _insertFormulaToken(token) {
+    let input = this._activeFormulaInput;
+    if (!input && this._formulaInput && !this._formulaInput.disabled) {
+      input = this._formulaInput;
+    }
+    if (!input) return;
+
+    input.focus();
+    let value = input.value || '';
+    if (!value.startsWith('=')) {
+      value = '=' + value;
+      input.value = value;
+    }
+    const start = typeof input.selectionStart === 'number' ? input.selectionStart : value.length;
+    const end = typeof input.selectionEnd === 'number' ? input.selectionEnd : value.length;
+    input.value = value.slice(0, start) + token + value.slice(end);
+    input.selectionStart = input.selectionEnd = start + token.length;
+    input.dispatchEvent(new Event('input'));
+  }
+
+  _buildContextMenu() {
+    if (this._contextMenuEl) return;
+    const menu = document.createElement('div');
+    menu.id = 'sheet-context-menu';
+    menu.className = 'sheet-context-menu hidden';
+
+    const label = document.createElement('div');
+    label.className = 'sheet-context-label';
+    label.textContent = 'Fonctions';
+    menu.appendChild(label);
+
+    const functions = [
+      { label: 'Racine carrée', token: 'RACINE' },
+      { label: 'Valeur absolue', token: 'ABS' },
+      { label: 'Sinus', token: 'SIN' },
+      { label: 'Cosinus', token: 'COS' },
+      { label: 'Tangente', token: 'TAN' },
+      { label: 'Logarithme (ln)', token: 'LN' },
+      { label: 'Logarithme (base 10)', token: 'LOG' },
+      { label: 'Exponentielle', token: 'EXP' },
+      { label: 'Somme', token: 'SOMME' },
+      { label: 'Moyenne', token: 'MOYENNE' },
+      { label: 'Minimum', token: 'MIN' },
+      { label: 'Maximum', token: 'MAX' },
+      { label: 'Compter', token: 'NB' }
+    ];
+
+    functions.forEach(({ label: text, token }) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'sheet-context-item';
+      item.textContent = text;
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._insertFormulaToken(token);
+        this._hideContextMenu();
+      });
+      menu.appendChild(item);
+    });
+
+    document.body.appendChild(menu);
+    this._contextMenuEl = menu;
+  }
+
+  _onContextMenu(e) {
+    e.preventDefault();
+    this._showContextMenu(e.clientX, e.clientY);
+  }
+
+  _showContextMenu(clientX, clientY) {
+    if (!this._contextMenuEl) return;
+    this._contextMenuEl.classList.remove('hidden');
+    this._contextMenuEl.style.left = '0px';
+    this._contextMenuEl.style.top = '0px';
+    const rect = this._contextMenuEl.getBoundingClientRect();
+    const gap = 8;
+    const maxX = window.innerWidth - rect.width - gap;
+    const maxY = window.innerHeight - rect.height - gap;
+    const x = Math.max(gap, Math.min(clientX, maxX));
+    const y = Math.max(gap, Math.min(clientY, maxY));
+    this._contextMenuEl.style.left = `${x}px`;
+    this._contextMenuEl.style.top = `${y}px`;
+  }
+
+  _hideContextMenu() {
+    if (!this._contextMenuEl) return;
+    this._contextMenuEl.classList.add('hidden');
   }
 
   // ─── Rendering ───────────────────────────────────────────────────────────────
