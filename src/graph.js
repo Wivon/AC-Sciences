@@ -134,6 +134,19 @@ class Graph {
       menu.appendChild(item);
     });
 
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'chart-context-item';
+    clearBtn.textContent = 'Effacer tangeante';
+    clearBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._tangentManual = null;
+      this._tangentDrag = null;
+      if (this._chart) this._chart.draw();
+      this._hideCursorMenu();
+    });
+    menu.appendChild(clearBtn);
+
     document.body.appendChild(menu);
     this._cursorMenuEl = menu;
     this._syncCursorMenuSelection();
@@ -965,9 +978,7 @@ class Graph {
   }
 
   _drawManualTangentOverlay(chart) {
-    if (this._cursorMode !== 'tangent') return;
     if (!chart || !chart.chartArea || !chart.scales || !chart.scales.x || !chart.scales.y) return;
-    this._ensureManualTangentState();
     if (!this._tangentManual) return;
 
     const state = this._tangentManual;
