@@ -21,8 +21,8 @@ class Graph {
     this._pointerState = null;   // { xPx, yPx, xValue, values: [{label,color,y}] }
     this._pointerSeries = [];
     this._pointerXAxisLabel = 'X';
-    this._tangentLines = [];
-    this._tangentDraft = null;
+    this._tangentManual = null;
+    this._tangentDrag = null;
     this._cursorMenuEl = null;
 
     this._xSelect = document.getElementById('x-axis-select');
@@ -114,7 +114,7 @@ class Graph {
     const options = [
       { mode: 'normal', label: 'Normal' },
       { mode: 'pointer', label: 'Pointeur' },
-      { mode: 'tangent', label: 'Tangente' }
+      { mode: 'tangent', label: 'Tangeante manuelle' }
     ];
     options.forEach(({ mode, label }) => {
       const item = document.createElement('button');
@@ -130,22 +130,6 @@ class Graph {
       menu.appendChild(item);
     });
 
-    const divider = document.createElement('div');
-    divider.className = 'chart-context-divider';
-    menu.appendChild(divider);
-
-    const clearBtn = document.createElement('button');
-    clearBtn.type = 'button';
-    clearBtn.className = 'chart-context-item';
-    clearBtn.textContent = 'Effacer tangentes';
-    clearBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this._tangentDraft = null;
-      this._tangentLines = [];
-      if (this._chart) this._chart.draw();
-      this._hideCursorMenu();
-    });
-    menu.appendChild(clearBtn);
     document.body.appendChild(menu);
     this._cursorMenuEl = menu;
     this._syncCursorMenuSelection();
@@ -193,7 +177,7 @@ class Graph {
       this._pointerState = null;
     }
     if (next !== 'tangent') {
-      this._tangentDraft = null;
+      this._tangentDrag = null;
     }
     this._axisDrag = null;
     document.body.style.cursor = '';
@@ -202,6 +186,10 @@ class Graph {
       this._canvas.style.cursor = 'crosshair';
     } else {
       this._canvas.style.cursor = 'default';
+    }
+    if (next === 'tangent') {
+      this._ensureManualTangentState();
+      if (this._chart) this._chart.draw();
     }
   }
 
@@ -487,8 +475,8 @@ class Graph {
     this._axisZoom = { x: null, y: null };
     this._axisDrag = null;
     this._pointerState = null;
-    this._tangentDraft = null;
-    this._tangentLines = [];
+    this._tangentDrag = null;
+    this._tangentManual = null;
     document.body.style.cursor = '';
     const savedCursorMode = graphData && (graphData.cursorMode === 'pointer' || graphData.cursorMode === 'tangent')
       ? graphData.cursorMode
@@ -610,7 +598,7 @@ class Graph {
     this._axisZoom = { x: null, y: null };
     this._closeAllSeriesMenus();
     this._pointerState = null;
-    this._tangentDraft = null;
+    this._tangentDrag = null;
     document.body.style.cursor = '';
     this._regressionCoeffs = null;
     this._regressionResult.classList.remove('visible');
@@ -807,6 +795,9 @@ class Graph {
         }
       });
     }
+    if (this._cursorMode === 'tangent') {
+      this._ensureManualTangentState();
+    }
   }
 
   _fmt(v) {
@@ -862,7 +853,7 @@ class Graph {
   }
 
   _drawCursorOverlays(chart) {
-    this._drawTangentOverlay(chart);
+    this._drawManualTangentOverlay(chart);
     this._drawPointerOverlay(chart);
   }
 
@@ -928,47 +919,83 @@ class Graph {
     ctx.restore();
   }
 
-  _drawTangentOverlay(chart) {
+  _drawManualTangentOverlay(chart) {
+    if (this._cursorMode !== 'tangent') return;
     if (!chart || !chart.chartArea || !chart.scales || !chart.scales.x || !chart.scales.y) return;
-    const lines = [...this._tangentLines];
-    if (this._tangentDraft) lines.push(this._tangentDraft);
-    if (lines.length === 0) return;
+    this._ensureManualTangentState();
+    if (!this._tangentManual) return;
 
-    const area = chart.chartArea;
+    const state = this._tangentManual;
     const xScale = chart.scales.x;
     const yScale = chart.scales.y;
+    const area = chart.chartArea;
     const ctx = chart.ctx;
+
+    const normal = this._getManualTangentNormal(state.p1, state.p2);
+    if (!normal) return;
+    const d = state.d || 0;
+    const offsets = [0, d / 2, d];
+    const xMin = xScale.min;
+    const xMax = xScale.max;
+    const yMin = yScale.min;
+    const yMax = yScale.max;
+
+    const drawLine = (p1, p2, color, width, dash) => {
+      let a;
+      let b;
+      if (Math.abs(p2.x - p1.x) < 1e-12) {
+        a = { x: p1.x, y: yMin };
+        b = { x: p1.x, y: yMax };
+      } else {
+        const m = (p2.y - p1.y) / (p2.x - p1.x);
+        const yAtMin = p1.y + m * (xMin - p1.x);
+        const yAtMax = p1.y + m * (xMax - p1.x);
+        a = { x: xMin, y: yAtMin };
+        b = { x: xMax, y: yAtMax };
+      }
+      const ax = xScale.getPixelForValue(a.x);
+      const ay = yScale.getPixelForValue(a.y);
+      const bx = xScale.getPixelForValue(b.x);
+      const by = yScale.getPixelForValue(b.y);
+      if (![ax, ay, bx, by].every(Number.isFinite)) return;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.setLineDash(dash || []);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    };
 
     ctx.save();
     ctx.beginPath();
     ctx.rect(area.left, area.top, area.right - area.left, area.bottom - area.top);
     ctx.clip();
 
-    lines.forEach((line, idx) => {
-      if (!line || !Number.isFinite(line.x1) || !Number.isFinite(line.y1) || !Number.isFinite(line.x2) || !Number.isFinite(line.y2)) return;
-      const x1 = xScale.getPixelForValue(line.x1);
-      const y1 = yScale.getPixelForValue(line.y1);
-      const x2 = xScale.getPixelForValue(line.x2);
-      const y2 = yScale.getPixelForValue(line.y2);
-      if (!Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(x2) || !Number.isFinite(y2)) return;
-      if (Math.hypot(x2 - x1, y2 - y1) < 4) return;
-
-      const isDraft = idx === lines.length - 1 && this._tangentDraft === line;
-      ctx.strokeStyle = isDraft ? 'rgba(239,68,68,0.75)' : 'rgba(239,68,68,0.95)';
-      ctx.lineWidth = isDraft ? 2 : 2.4;
-      ctx.setLineDash(isDraft ? [6, 4] : []);
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
-      ctx.stroke();
-
-      ctx.setLineDash([]);
-      ctx.fillStyle = isDraft ? 'rgba(239,68,68,0.75)' : 'rgba(239,68,68,0.95)';
-      ctx.beginPath();
-      ctx.arc(x1, y1, 3.2, 0, Math.PI * 2);
-      ctx.arc(x2, y2, 3.2, 0, Math.PI * 2);
-      ctx.fill();
+    offsets.forEach((offset, idx) => {
+      const shiftedP1 = { x: state.p1.x + normal.nx * offset, y: state.p1.y + normal.ny * offset };
+      const shiftedP2 = { x: state.p2.x + normal.nx * offset, y: state.p2.y + normal.ny * offset };
+      const color = idx === 1 ? 'rgba(239,68,68,0.65)' : 'rgba(239,68,68,0.95)';
+      const width = idx === 1 ? 1.8 : 2.4;
+      const dash = idx === 1 ? [6, 4] : [];
+      drawLine(shiftedP1, shiftedP2, color, width, dash);
     });
+
+    const handles = this._getManualTangentHandlePixels(chart);
+    if (handles) {
+      ctx.fillStyle = 'rgba(239,68,68,0.95)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 1.4;
+      ['p1', 'p2', 'offset'].forEach((key) => {
+        const h = handles[key];
+        if (!h) return;
+        ctx.beginPath();
+        ctx.arc(h.x, h.y, key === 'offset' ? 5.5 : 6.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      });
+    }
 
     ctx.restore();
   }
@@ -993,20 +1020,80 @@ class Graph {
     return { x, y, xPx, yPx, inPlot };
   }
 
-  _pushTangentLine(line) {
-    if (!line || !this._chart || !this._chart.scales || !this._chart.scales.x || !this._chart.scales.y) return;
+  _ensureManualTangentState() {
+    if (this._tangentManual || !this._chart || !this._chart.scales || !this._chart.scales.x || !this._chart.scales.y) return;
     const xScale = this._chart.scales.x;
     const yScale = this._chart.scales.y;
-    const x1 = xScale.getPixelForValue(line.x1);
-    const y1 = yScale.getPixelForValue(line.y1);
-    const x2 = xScale.getPixelForValue(line.x2);
-    const y2 = yScale.getPixelForValue(line.y2);
-    if (![x1, y1, x2, y2].every(Number.isFinite)) return;
-    if (Math.hypot(x2 - x1, y2 - y1) < 4) return;
+    const xMin = xScale.min;
+    const xMax = xScale.max;
+    const yMin = yScale.min;
+    const yMax = yScale.max;
+    if (!this._isValidRange(xMin, xMax) || !this._isValidRange(yMin, yMax)) return;
+    const dx = xMax - xMin;
+    const dy = yMax - yMin;
+    this._tangentManual = {
+      p1: { x: xMin + dx * 0.2, y: yMin + dy * 0.25 },
+      p2: { x: xMin + dx * 0.8, y: yMin + dy * 0.55 },
+      d: dy * 0.12
+    };
+  }
 
-    this._tangentLines.push({ ...line });
-    if (this._tangentLines.length > 2) {
-      this._tangentLines = this._tangentLines.slice(this._tangentLines.length - 2);
+  _getManualTangentNormal(p1, p2) {
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = Math.hypot(dx, dy);
+    if (!isFinite(len) || len < 1e-9) return null;
+    return { nx: -dy / len, ny: dx / len };
+  }
+
+  _getManualTangentHandlePixels(chart) {
+    if (!chart || !this._tangentManual) return null;
+    const state = this._tangentManual;
+    const normal = this._getManualTangentNormal(state.p1, state.p2);
+    if (!normal) return null;
+    const xScale = chart.scales.x;
+    const yScale = chart.scales.y;
+    const mid = { x: (state.p1.x + state.p2.x) / 2, y: (state.p1.y + state.p2.y) / 2 };
+    const offsetPoint = { x: mid.x + normal.nx * (state.d || 0), y: mid.y + normal.ny * (state.d || 0) };
+    const p1 = { x: xScale.getPixelForValue(state.p1.x), y: yScale.getPixelForValue(state.p1.y) };
+    const p2 = { x: xScale.getPixelForValue(state.p2.x), y: yScale.getPixelForValue(state.p2.y) };
+    const off = { x: xScale.getPixelForValue(offsetPoint.x), y: yScale.getPixelForValue(offsetPoint.y) };
+    if (![p1.x, p1.y, p2.x, p2.y, off.x, off.y].every(Number.isFinite)) return null;
+    return { p1, p2, offset: off };
+  }
+
+  _hitTestManualTangentHandle(e) {
+    if (!this._chart || !this._tangentManual) return null;
+    const point = this._getChartValuePointFromMouseEvent(e);
+    if (!point) return null;
+    const handles = this._getManualTangentHandlePixels(this._chart);
+    if (!handles) return null;
+    const radius = 10;
+    const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const cursor = { x: point.xPx, y: point.yPx };
+    if (dist(cursor, handles.p1) <= radius) return 'p1';
+    if (dist(cursor, handles.p2) <= radius) return 'p2';
+    if (dist(cursor, handles.offset) <= radius) return 'offset';
+    return null;
+  }
+
+  _applyManualTangentDrag(point, handle) {
+    if (!this._tangentManual || !point) return;
+    const state = this._tangentManual;
+    if (handle === 'p1') {
+      state.p1 = { x: point.x, y: point.y };
+      return;
+    }
+    if (handle === 'p2') {
+      state.p2 = { x: point.x, y: point.y };
+      return;
+    }
+    if (handle === 'offset') {
+      const normal = this._getManualTangentNormal(state.p1, state.p2);
+      if (!normal) return;
+      const dx = point.x - state.p1.x;
+      const dy = point.y - state.p1.y;
+      state.d = dx * normal.nx + dy * normal.ny;
     }
   }
 
@@ -1022,14 +1109,15 @@ class Graph {
     if (e.button !== 0) return;
 
     if (this._cursorMode === 'tangent') {
-      const start = this._getChartValuePointFromMouseEvent(e);
-      if (start && start.inPlot) {
+      this._ensureManualTangentState();
+      const handle = this._hitTestManualTangentHandle(e);
+      if (handle) {
         e.preventDefault();
         this._axisDrag = null;
         this._pointerState = null;
-        this._tangentDraft = { x1: start.x, y1: start.y, x2: start.x, y2: start.y };
-        this._canvas.style.cursor = 'crosshair';
-        document.body.style.cursor = 'crosshair';
+        this._tangentDrag = { handle };
+        this._canvas.style.cursor = 'grabbing';
+        document.body.style.cursor = 'grabbing';
         if (this._chart) this._chart.draw();
         return;
       }
@@ -1059,14 +1147,6 @@ class Graph {
 
   _onCanvasMouseMove(e) {
     if (this._axisDrag) return;
-    if (this._tangentDraft) {
-      const point = this._getChartValuePointFromMouseEvent(e, { clampToPlot: true });
-      if (!point) return;
-      this._tangentDraft.x2 = point.x;
-      this._tangentDraft.y2 = point.y;
-      if (this._chart) this._chart.draw();
-      return;
-    }
     if (this._cursorMode === 'pointer') {
       this._canvas.style.cursor = 'crosshair';
       this._updatePointerStateFromMouseEvent(e);
@@ -1075,11 +1155,20 @@ class Graph {
     }
     this._pointerState = null;
     if (this._cursorMode === 'tangent') {
-      const point = this._getChartValuePointFromMouseEvent(e);
-      if (point && point.inPlot) {
-        this._canvas.style.cursor = 'crosshair';
+      if (this._tangentDrag) {
+        this._canvas.style.cursor = 'grabbing';
       } else {
-        this._updateAxisCursor(e);
+        const handle = this._hitTestManualTangentHandle(e);
+        if (handle) {
+          this._canvas.style.cursor = 'grab';
+        } else {
+          const point = this._getChartValuePointFromMouseEvent(e);
+          if (point && point.inPlot) {
+            this._canvas.style.cursor = 'crosshair';
+          } else {
+            this._updateAxisCursor(e);
+          }
+        }
       }
       return;
     }
@@ -1087,7 +1176,7 @@ class Graph {
   }
 
   _onCanvasMouseLeave() {
-    if (this._axisDrag || this._tangentDraft) return;
+    if (this._axisDrag || this._tangentDrag) return;
     this._pointerState = null;
     if (this._chart) this._chart.draw();
     if (this._cursorMode === 'pointer' || this._cursorMode === 'tangent') {
@@ -1098,12 +1187,11 @@ class Graph {
   }
 
   _onGlobalMouseMove(e) {
-    if (this._tangentDraft) {
+    if (this._tangentDrag) {
       e.preventDefault();
       const point = this._getChartValuePointFromMouseEvent(e, { clampToPlot: true });
       if (!point) return;
-      this._tangentDraft.x2 = point.x;
-      this._tangentDraft.y2 = point.y;
+      this._applyManualTangentDrag(point, this._tangentDrag.handle);
       if (this._chart) this._chart.draw();
       return;
     }
@@ -1140,29 +1228,19 @@ class Graph {
   }
 
   _onGlobalMouseUp(e) {
-    if (this._tangentDraft) {
+    if (this._tangentDrag) {
       const point = this._getChartValuePointFromMouseEvent(e, { clampToPlot: true });
-      if (point) {
-        this._tangentDraft.x2 = point.x;
-        this._tangentDraft.y2 = point.y;
-      }
-      const tangent = this._tangentDraft;
-      this._tangentDraft = null;
-      this._pushTangentLine(tangent);
-
+      if (point) this._applyManualTangentDrag(point, this._tangentDrag.handle);
+      this._tangentDrag = null;
       document.body.style.cursor = '';
       if (this._cursorMode === 'pointer') {
         this._canvas.style.cursor = 'crosshair';
       } else if (this._cursorMode === 'tangent') {
-        if (point && point.inPlot) {
-          this._canvas.style.cursor = 'crosshair';
-        } else {
-          this._updateAxisCursor(e);
-        }
+        const handle = this._hitTestManualTangentHandle(e);
+        this._canvas.style.cursor = handle ? 'grab' : 'crosshair';
       } else {
         this._updateAxisCursor(e);
       }
-
       if (this._chart) this._chart.draw();
       return;
     }
