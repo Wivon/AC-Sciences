@@ -7,7 +7,13 @@
     "start": "env -u ELECTRON_RUN_AS_NODE electron .",
     "dist:win": "electron-builder --win portable --x64",
     "dist:mac": "electron-builder --mac dmg",
-    "dist": "electron-builder --mac dmg --win portable --x64"
+    "dist:linux": "electron-builder --linux AppImage deb --x64",
+    "dist": "electron-builder --mac dmg --win portable --linux AppImage deb --x64"
+  },
+  "author": {
+    "name": "Lilian Br",
+    "email": "contact@vecting.org",
+    "url": "https://labo-claveille.vecting.org"
   },
   "devDependencies": {
     "electron": "^41.0.3",
@@ -63,6 +69,21 @@
         "width": 540,
         "height": 380
       }
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        },
+        {
+          "target": "deb",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/logo.png",
+      "category": "Development",
+      "mimeTypes": ["application/x-lab"]
     }
   }
 }
