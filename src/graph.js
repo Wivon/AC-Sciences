@@ -10,6 +10,8 @@ class Graph {
     this._debounceTimer = null;
     this._regressionCoeffs = null;
     this._regressionType = 'none';
+    this._regressionSeries = [];
+    this._regressionSeriesCounter = 1;
     this._pendingSelectYId = null;
     this._pendingRegressColId = null;
     this._yLineStyleByColId = {};
@@ -34,6 +36,8 @@ class Graph {
     this._deriveBtn        = document.getElementById('derive-btn');
     this._regressColSelect = document.getElementById('regress-col-select');
     this._regressionSelect = document.getElementById('regression-type-select');
+    this._regressStartInput = document.getElementById('regress-start-input');
+    this._regressEndInput = document.getElementById('regress-end-input');
     this._fitBtn = document.getElementById('fit-curve-btn');
     this._regressionResult = document.getElementById('regression-result');
     this._refreshBtn = document.getElementById('refresh-graph-btn');
@@ -216,14 +220,15 @@ class Graph {
     const prevYIds = this._getSelectedYIds();
     const selectedYIds = new Set(prevYIds);
     const colIdSet = new Set(cols.map(c => c.id));
+    const regressionIdSet = new Set(this._regressionSeries.map(s => s.id));
     Object.keys(this._yLineStyleByColId).forEach(colId => {
-      if (!colIdSet.has(colId)) delete this._yLineStyleByColId[colId];
+      if (!colIdSet.has(colId) && !regressionIdSet.has(colId)) delete this._yLineStyleByColId[colId];
     });
     Object.keys(this._yPointStyleByColId).forEach(colId => {
-      if (!colIdSet.has(colId)) delete this._yPointStyleByColId[colId];
+      if (!colIdSet.has(colId) && !regressionIdSet.has(colId)) delete this._yPointStyleByColId[colId];
     });
     Object.keys(this._yColorByColId).forEach(colId => {
-      if (!colIdSet.has(colId)) delete this._yColorByColId[colId];
+      if (!colIdSet.has(colId) && !regressionIdSet.has(colId)) delete this._yColorByColId[colId];
     });
     if (this._pendingSelectYId) selectedYIds.add(this._pendingSelectYId);
 
@@ -262,165 +267,215 @@ class Graph {
       const lineStyle = this._getSeriesLineStyle(col.id);
       const pointStyle = this._getSeriesPointStyle(col.id);
       const color = this._getSeriesColor(col.id, colIdx);
-
-      const row = document.createElement('div');
-      row.className = 'y-pill-row' + (selectedYIds.has(col.id) ? ' selected' : '');
-      row.dataset.colId = col.id;
-
-      const mainBtn = document.createElement('button');
-      mainBtn.type = 'button';
-      mainBtn.className = 'y-pill-main';
-      const colorDot = document.createElement('span');
-      colorDot.className = 'y-pill-color-dot';
-      colorDot.style.backgroundColor = color;
-      const labelText = document.createElement('span');
-      labelText.className = 'y-pill-label';
-      labelText.textContent = label;
-      mainBtn.appendChild(colorDot);
-      mainBtn.appendChild(labelText);
-      mainBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        row.classList.toggle('selected');
-        this._onAxesChanged();
+      this._appendSeriesRow({
+        seriesId: col.id,
+        label,
+        lineStyle,
+        pointStyle,
+        color,
+        selected: selectedYIds.has(col.id),
+        seriesType: 'column',
+        fallbackIndex: colIdx
       });
-
-      const menuBtn = document.createElement('button');
-      menuBtn.type = 'button';
-      menuBtn.className = 'y-pill-menu-btn';
-      menuBtn.textContent = '▾';
-      menuBtn.title = 'Options de serie';
-      menuBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const willOpen = !row.classList.contains('menu-open');
-        this._closeAllSeriesMenus();
-        if (willOpen) {
-          row.classList.add('menu-open');
-          this._positionSeriesMenu(row, menu);
-        }
-      });
-
-      const menu = document.createElement('div');
-      menu.className = 'y-style-menu';
-      const addSectionDivider = () => {
-        const divider = document.createElement('div');
-        divider.className = 'y-style-divider';
-        menu.appendChild(divider);
-      };
-
-      const lineLabel = document.createElement('div');
-      lineLabel.className = 'y-style-section-label';
-      lineLabel.textContent = 'Ligne';
-      menu.appendChild(lineLabel);
-      [
-        { value: 'none', label: 'Pas de ligne' },
-        { value: 'line', label: 'Ligne' },
-        { value: 'dotted', label: 'Ligne pointillée' }
-      ].forEach(option => {
-        const item = document.createElement('button');
-        item.type = 'button';
-        item.className = 'y-style-item' + (lineStyle === option.value ? ' selected' : '');
-        item.dataset.group = 'line';
-        item.dataset.value = option.value;
-        item.textContent = option.label;
-        item.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this._setSeriesLineStyle(col.id, option.value);
-          menu.querySelectorAll('.y-style-item[data-group="line"]').forEach(btn => {
-            btn.classList.toggle('selected', btn.dataset.value === option.value);
-          });
-          this._renderChart();
-        });
-        menu.appendChild(item);
-      });
-
-      addSectionDivider();
-
-      const pointLabel = document.createElement('div');
-      pointLabel.className = 'y-style-section-label';
-      pointLabel.textContent = 'Points';
-      menu.appendChild(pointLabel);
-      [
-        { value: 'none', label: 'Aucun' },
-        { value: 'dots', label: 'Points' },
-        { value: 'cross', label: 'Croix' }
-      ].forEach(option => {
-        const item = document.createElement('button');
-        item.type = 'button';
-        item.className = 'y-style-item' + (pointStyle === option.value ? ' selected' : '');
-        item.dataset.group = 'point';
-        item.dataset.value = option.value;
-        item.textContent = option.label;
-        item.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this._setSeriesPointStyle(col.id, option.value);
-          menu.querySelectorAll('.y-style-item[data-group="point"]').forEach(btn => {
-            btn.classList.toggle('selected', btn.dataset.value === option.value);
-          });
-          this._renderChart();
-        });
-        menu.appendChild(item);
-      });
-
-      addSectionDivider();
-
-      const colorLabel = document.createElement('div');
-      colorLabel.className = 'y-style-section-label';
-      colorLabel.textContent = 'Couleur';
-      menu.appendChild(colorLabel);
-
-      const colorGrid = document.createElement('div');
-      colorGrid.className = 'y-color-grid';
-      this._colorOptions.forEach(optionColor => {
-        const colorBtn = document.createElement('button');
-        colorBtn.type = 'button';
-        colorBtn.className = 'y-color-option' + (optionColor === color ? ' selected' : '');
-        colorBtn.dataset.color = optionColor;
-        colorBtn.style.backgroundColor = optionColor;
-        colorBtn.setAttribute('aria-label', `Couleur ${optionColor}`);
-        colorBtn.title = optionColor;
-        colorBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this._setSeriesColor(col.id, optionColor);
-          colorDot.style.backgroundColor = optionColor;
-          colorGrid.querySelectorAll('.y-color-option').forEach(btn => {
-            btn.classList.toggle('selected', btn.dataset.color === optionColor);
-          });
-          this._renderChart();
-        });
-        colorGrid.appendChild(colorBtn);
-      });
-      menu.appendChild(colorGrid);
-
-      const uglyBtn = document.createElement('button');
-      uglyBtn.type = 'button';
-      uglyBtn.className = 'y-style-item y-style-random-color';
-      uglyBtn.textContent = 'Couleur improbable';
-      uglyBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const randomColor = this._randomUglyColor();
-        this._setSeriesColor(col.id, randomColor);
-        colorDot.style.backgroundColor = randomColor;
-        colorGrid.querySelectorAll('.y-color-option').forEach(btn => {
-          btn.classList.remove('selected');
-        });
-        this._renderChart();
-      });
-      menu.appendChild(uglyBtn);
-
-      row.appendChild(mainBtn);
-      row.appendChild(menuBtn);
-      row.appendChild(menu);
-      this._yList.appendChild(row);
     });
+
+    const validRegressionSeries = this._regressionSeries.filter(series => {
+      if (!series || !series.id || !series.colId || !series.xColId) return false;
+      if (!colIdSet.has(series.colId) || !colIdSet.has(series.xColId)) return false;
+      return true;
+    });
+    this._regressionSeries = validRegressionSeries;
+    const visibleRegressionSeries = validRegressionSeries.filter(series => series.xColId === activeXId);
+    if (visibleRegressionSeries.length > 0) {
+      const label = document.createElement('div');
+      label.className = 'y-style-section-label';
+      label.textContent = 'Modélisations';
+      this._yList.appendChild(label);
+      visibleRegressionSeries.forEach((series, idx) => {
+        const lineStyle = this._getSeriesLineStyle(series.id);
+        const pointStyle = this._getSeriesPointStyle(series.id);
+        const color = this._getSeriesColor(series.id, idx);
+        this._appendSeriesRow({
+          seriesId: series.id,
+          label: series.label,
+          lineStyle,
+          pointStyle,
+          color,
+          selected: selectedYIds.has(series.id),
+          seriesType: 'regression',
+          fallbackIndex: idx
+        });
+      });
+    }
 
     this._pendingSelectYId = null;
     this._pendingRegressColId = null;
   }
 
-  /** Returns array of colIds for currently selected Y pills */
+  _appendSeriesRow({ seriesId, label, lineStyle, pointStyle, color, selected, seriesType, fallbackIndex }) {
+    const row = document.createElement('div');
+    row.className = 'y-pill-row' + (selected ? ' selected' : '');
+    row.dataset.colId = seriesId;
+    row.dataset.seriesType = seriesType || 'column';
+
+    const mainBtn = document.createElement('button');
+    mainBtn.type = 'button';
+    mainBtn.className = 'y-pill-main';
+    const colorDot = document.createElement('span');
+    colorDot.className = 'y-pill-color-dot';
+    colorDot.style.backgroundColor = color;
+    const labelText = document.createElement('span');
+    labelText.className = 'y-pill-label';
+    labelText.textContent = label || '';
+    mainBtn.appendChild(colorDot);
+    mainBtn.appendChild(labelText);
+    mainBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      row.classList.toggle('selected');
+      this._onAxesChanged();
+    });
+
+    const menuBtn = document.createElement('button');
+    menuBtn.type = 'button';
+    menuBtn.className = 'y-pill-menu-btn';
+    menuBtn.textContent = '▾';
+    menuBtn.title = 'Options de serie';
+    menuBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const willOpen = !row.classList.contains('menu-open');
+      this._closeAllSeriesMenus();
+      if (willOpen) {
+        row.classList.add('menu-open');
+        this._positionSeriesMenu(row, menu);
+      }
+    });
+
+    const menu = document.createElement('div');
+    menu.className = 'y-style-menu';
+    const addSectionDivider = () => {
+      const divider = document.createElement('div');
+      divider.className = 'y-style-divider';
+      menu.appendChild(divider);
+    };
+
+    const lineLabel = document.createElement('div');
+    lineLabel.className = 'y-style-section-label';
+    lineLabel.textContent = 'Ligne';
+    menu.appendChild(lineLabel);
+    [
+      { value: 'none', label: 'Pas de ligne' },
+      { value: 'line', label: 'Ligne' },
+      { value: 'dotted', label: 'Ligne pointillée' }
+    ].forEach(option => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'y-style-item' + (lineStyle === option.value ? ' selected' : '');
+      item.dataset.group = 'line';
+      item.dataset.value = option.value;
+      item.textContent = option.label;
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._setSeriesLineStyle(seriesId, option.value);
+        menu.querySelectorAll('.y-style-item[data-group="line"]').forEach(btn => {
+          btn.classList.toggle('selected', btn.dataset.value === option.value);
+        });
+        this._renderChart();
+      });
+      menu.appendChild(item);
+    });
+
+    addSectionDivider();
+
+    const pointLabel = document.createElement('div');
+    pointLabel.className = 'y-style-section-label';
+    pointLabel.textContent = 'Points';
+    menu.appendChild(pointLabel);
+    [
+      { value: 'none', label: 'Aucun' },
+      { value: 'dots', label: 'Points' },
+      { value: 'cross', label: 'Croix' }
+    ].forEach(option => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'y-style-item' + (pointStyle === option.value ? ' selected' : '');
+      item.dataset.group = 'point';
+      item.dataset.value = option.value;
+      item.textContent = option.label;
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._setSeriesPointStyle(seriesId, option.value);
+        menu.querySelectorAll('.y-style-item[data-group="point"]').forEach(btn => {
+          btn.classList.toggle('selected', btn.dataset.value === option.value);
+        });
+        this._renderChart();
+      });
+      menu.appendChild(item);
+    });
+
+    addSectionDivider();
+
+    const colorLabel = document.createElement('div');
+    colorLabel.className = 'y-style-section-label';
+    colorLabel.textContent = 'Couleur';
+    menu.appendChild(colorLabel);
+
+    const colorGrid = document.createElement('div');
+    colorGrid.className = 'y-color-grid';
+    this._colorOptions.forEach(optionColor => {
+      const colorBtn = document.createElement('button');
+      colorBtn.type = 'button';
+      colorBtn.className = 'y-color-option' + (optionColor === color ? ' selected' : '');
+      colorBtn.dataset.color = optionColor;
+      colorBtn.style.backgroundColor = optionColor;
+      colorBtn.setAttribute('aria-label', `Couleur ${optionColor}`);
+      colorBtn.title = optionColor;
+      colorBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._setSeriesColor(seriesId, optionColor);
+        colorDot.style.backgroundColor = optionColor;
+        colorGrid.querySelectorAll('.y-color-option').forEach(btn => {
+          btn.classList.toggle('selected', btn.dataset.color === optionColor);
+        });
+        this._renderChart();
+      });
+      colorGrid.appendChild(colorBtn);
+    });
+    menu.appendChild(colorGrid);
+
+    const uglyBtn = document.createElement('button');
+    uglyBtn.type = 'button';
+    uglyBtn.className = 'y-style-item y-style-random-color';
+    uglyBtn.textContent = 'Couleur improbable';
+    uglyBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const randomColor = this._randomUglyColor();
+      this._setSeriesColor(seriesId, randomColor);
+      colorDot.style.backgroundColor = randomColor;
+      colorGrid.querySelectorAll('.y-color-option').forEach(btn => {
+        btn.classList.remove('selected');
+      });
+      this._renderChart();
+    });
+    menu.appendChild(uglyBtn);
+
+    row.appendChild(mainBtn);
+    row.appendChild(menuBtn);
+    row.appendChild(menu);
+    this._yList.appendChild(row);
+  }
+
+  /** Returns array of seriesIds for currently selected Y pills (columns + regressions) */
   _getSelectedYIds() {
     return Array.from(this._yList.querySelectorAll('.y-pill-row.selected'))
       .map(p => p.dataset.colId);
+  }
+
+  _getSelectedSeriesEntries() {
+    return Array.from(this._yList.querySelectorAll('.y-pill-row.selected'))
+      .map(p => ({
+        id: p.dataset.colId,
+        type: p.dataset.seriesType || 'column'
+      }));
   }
 
   _getSeriesLineStyle(colId) {
@@ -538,7 +593,30 @@ class Graph {
     if (graphData.originY !== undefined && graphData.originY !== null) {
       this._originYInput.value = String(graphData.originY);
     }
+    if (this._regressStartInput) {
+      this._regressStartInput.value = graphData.regressStart ? String(graphData.regressStart) : '';
+    }
+    if (this._regressEndInput) {
+      this._regressEndInput.value = graphData.regressEnd ? String(graphData.regressEnd) : '';
+    }
     if (graphData.xColumn) this._xSelect.value = graphData.xColumn;
+    this._regressionSeries = Array.isArray(graphData.regressionSeries)
+      ? graphData.regressionSeries
+        .filter(s => s && s.id && s.colId && s.xColId && s.type && s.coeffs)
+        .map(s => ({
+          id: s.id,
+          colId: s.colId,
+          xColId: s.xColId,
+          type: s.type,
+          coeffs: s.coeffs,
+          label: s.label || 'Régression',
+          xMin: typeof s.xMin === 'number' ? s.xMin : null,
+          xMax: typeof s.xMax === 'number' ? s.xMax : null,
+          range: s.range || null,
+          rangeKey: s.rangeKey || null
+        }))
+      : [];
+    this._regressionSeriesCounter = this._regressionSeries.length + 1;
     this._yLineStyleByColId = {};
     this._yPointStyleByColId = {};
     if (graphData.yLineStyles && typeof graphData.yLineStyles === 'object') {
@@ -569,6 +647,11 @@ class Graph {
         if (this._isColorValue(color)) this._yColorByColId[colId] = color;
       });
     }
+    this._regressionSeries.forEach(series => {
+      if (!this._yLineStyleByColId[series.id]) this._yLineStyleByColId[series.id] = 'line';
+      if (!this._yPointStyleByColId[series.id]) this._yPointStyleByColId[series.id] = 'none';
+      if (!this._yColorByColId[series.id]) this._yColorByColId[series.id] = '#f59e0b';
+    });
     this.refreshColumns();
     const savedYIds = graphData.yColumns
       ? graphData.yColumns
@@ -581,7 +664,7 @@ class Graph {
       this._regressionSelect.value = graphData.regressionType;
     }
     this._regressionCoeffs = null;
-    this._renderChart();
+    this._update();
   }
 
   toData() {
@@ -615,6 +698,20 @@ class Graph {
       cursorMode: this._cursorMode,
       yColumns: this._getSelectedYIds(),
       regressionType: this._regressionType,
+      regressStart: this._regressStartInput ? this._regressStartInput.value : '',
+      regressEnd: this._regressEndInput ? this._regressEndInput.value : '',
+      regressionSeries: this._regressionSeries.map(s => ({
+        id: s.id,
+        colId: s.colId,
+        xColId: s.xColId,
+        type: s.type,
+        coeffs: s.coeffs,
+        label: s.label,
+        xMin: s.xMin,
+        xMax: s.xMax,
+        range: s.range || null,
+        rangeKey: s.rangeKey || null
+      })),
       yLineStyles,
       yPointStyles,
       yStyles,
@@ -662,20 +759,25 @@ class Graph {
   }
 
   /**
-   * Returns array of { colId, label, lineStyle, pointStyle, color, points } for selected Y columns.
+   * Returns array of { colId, label, lineStyle, pointStyle, color, points } for selected series.
    * points = [{ x, y }] filtered to rows where both X and Y are valid numbers.
    */
   _getXYData() {
     const xId = this._xSelect.value;
-    const yIds = this._getSelectedYIds();
-    if (!xId || yIds.length === 0) return null;
+    const selected = this._getSelectedSeriesEntries();
+    if (!xId || selected.length === 0) return null;
 
     const xVals = this._sheet.getColumnValues(xId);
     const cols = this._sheet.getColumns();
+    const colById = new Map(cols.map(c => [c.id, c]));
 
-    return yIds.map(yId => {
+    const columnSeries = selected
+      .filter(s => s.type === 'column')
+      .map(s => s.id);
+
+    const columnData = columnSeries.map(yId => {
       const yVals = this._sheet.getColumnValues(yId);
-      const col = cols.find(c => c.id === yId);
+      const col = colById.get(yId);
       const label = col ? (col.unit ? `${col.name} (${col.unit})` : col.name) : yId;
       const points = [];
       const len = Math.min(xVals.length, yVals.length);
@@ -694,25 +796,100 @@ class Graph {
         points
       };
     }).filter(s => s.points.length > 0);
+
+    const regressionData = selected
+      .filter(s => s.type === 'regression')
+      .map(s => this._buildRegressionSeries(s.id))
+      .filter(Boolean);
+
+    return [...columnData, ...regressionData];
   }
 
   /** Returns {points, label} for the column chosen in the regression selector (falls back to first Y). */
   _getRegressData() {
     const xId = this._xSelect.value;
-    const yId = this._regressColSelect.value;
-    if (!xId || !yId) {
-      // fall back to first selected Y pill
-      const series = this._getXYData();
-      return series && series.length > 0 ? series[0].points : null;
-    }
+    const yId = this._getRegressTargetColId();
+    if (!xId || !yId) return null;
     const xVals = this._sheet.getColumnValues(xId);
     const yVals = this._sheet.getColumnValues(yId);
+    const range = this._getRegressionRange();
     const points = [];
     const len = Math.min(xVals.length, yVals.length);
     for (let i = 0; i < len; i++) {
-      if (xVals[i] !== null && yVals[i] !== null) points.push({ x: xVals[i], y: yVals[i] });
+      const xv = xVals[i];
+      const yv = yVals[i];
+      if (xv === null || yv === null) continue;
+      if (range) {
+        if (range.start !== null && xv < range.start) continue;
+        if (range.end !== null && xv > range.end) continue;
+      }
+      points.push({ x: xv, y: yv });
     }
     return points.length > 0 ? points : null;
+  }
+
+  _getRegressTargetColId() {
+    const selected = this._getSelectedSeriesEntries();
+    const fallback = selected.find(s => s.type === 'column');
+    return this._regressColSelect.value || (fallback ? fallback.id : '');
+  }
+
+  _getRegressionRange() {
+    const rawStart = this._regressStartInput ? String(this._regressStartInput.value).trim() : '';
+    const rawEnd = this._regressEndInput ? String(this._regressEndInput.value).trim() : '';
+    const parse = (raw) => {
+      if (!raw) return null;
+      const v = parseFloat(raw.replace(/,/g, '.'));
+      return Number.isFinite(v) ? v : null;
+    };
+    let start = parse(rawStart);
+    let end = parse(rawEnd);
+    if (start !== null && end !== null && start > end) {
+      const tmp = start;
+      start = end;
+      end = tmp;
+    }
+    return (start === null && end === null) ? null : { start, end };
+  }
+
+  _getRegressionRangeKey() {
+    const range = this._getRegressionRange();
+    if (!range) return 'all';
+    const s = range.start !== null ? String(range.start) : '';
+    const e = range.end !== null ? String(range.end) : '';
+    return `${s}|${e}`;
+  }
+
+  _buildRegressionSeries(seriesId) {
+    const series = this._regressionSeries.find(s => s.id === seriesId);
+    if (!series || !series.coeffs) return null;
+    if (series.xColId !== this._xSelect.value) return null;
+    const chartScale = this._chart && this._chart.scales ? this._chart.scales.x : null;
+    const xMin = chartScale && Number.isFinite(chartScale.min)
+      ? chartScale.min
+      : (Number.isFinite(series.xMin) ? series.xMin : null);
+    const xMax = chartScale && Number.isFinite(chartScale.max)
+      ? chartScale.max
+      : (Number.isFinite(series.xMax) ? series.xMax : null);
+    if (xMin === null || xMax === null || xMax <= xMin) return null;
+
+    const points = [];
+    const step = (xMax - xMin) / 99;
+    for (let i = 0; i < 100; i++) {
+      const xi = xMin + i * step;
+      const yi = this._evalRegressionWith(xi, series.type, series.coeffs);
+      if (yi !== null && isFinite(yi)) points.push({ x: xi, y: yi });
+    }
+    if (points.length === 0) return null;
+
+    return {
+      colId: series.id,
+      label: series.label || 'Régression',
+      lineStyle: this._getSeriesLineStyle(series.id),
+      pointStyle: this._getSeriesPointStyle(series.id),
+      color: this._getSeriesColor(series.id, 0),
+      points
+    };
   }
 
   _getAxisLabels() {
@@ -770,33 +947,6 @@ class Graph {
         order: 3
       });
     });
-
-    // 2. Regression curve on the chosen column (or first Y as fallback)
-    const regressPts = this._getRegressData();
-    const regressSorted = regressPts ? regressPts.slice().sort((a, b) => a.x - b.x) : [];
-
-    if (this._regressionCoeffs && regressSorted.length >= 2) {
-      const xMin = regressSorted[0].x;
-      const xMax = regressSorted[regressSorted.length - 1].x;
-      const step = (xMax - xMin) / 99;
-      const curvePts = [];
-      for (let i = 0; i < 100; i++) {
-        const xi = xMin + i * step;
-        const yi = this._evalRegression(xi);
-        if (yi !== null && isFinite(yi)) curvePts.push({ x: xi, y: yi });
-      }
-      datasets.push({
-        label: 'Régression',
-        data: curvePts,
-        type: 'line',
-        borderColor: 'rgba(245,158,11,0.95)',
-        backgroundColor: 'transparent',
-        borderWidth: 2.5,
-        pointRadius: 0,
-        tension: 0.3,
-        order: 1
-      });
-    }
 
     const yAxisTitle = allSeries.length === 1 ? allSeries[0].label : 'Y';
     const scales = {
@@ -1527,7 +1677,45 @@ class Graph {
     const r2Str = isFinite(r2) ? r2.toFixed(4) : 'N/A';
     const eqStr = this._formatEquation(type, result.coeffs);
     this._showRegressionResult(eqStr, r2Str);
-    this._renderChart();
+
+    const xId = this._xSelect.value;
+    const yId = this._getRegressTargetColId();
+    const cols = this._sheet.getColumns();
+    const yCol = cols.find(c => c.id === yId);
+    const labelBase = yCol ? (yCol.unit ? `${yCol.name} (${yCol.unit})` : yCol.name) : yId;
+    const seriesLabel = `${this._formatRegressionTypeLabel(type)} (${labelBase})`;
+    const xMin = sorted[0].x;
+    const xMax = sorted[sorted.length - 1].x;
+    const rangeKey = this._getRegressionRangeKey();
+    const existing = this._regressionSeries.find(s => s.colId === yId && s.xColId === xId && s.type === type && s.rangeKey === rangeKey);
+    if (existing) {
+      existing.coeffs = result.coeffs;
+      existing.label = seriesLabel;
+      existing.xMin = xMin;
+      existing.xMax = xMax;
+      existing.range = this._getRegressionRange();
+      existing.rangeKey = rangeKey;
+    } else {
+      const id = `regress_${this._regressionSeriesCounter++}`;
+      this._regressionSeries.push({
+        id,
+        colId: yId,
+        xColId: xId,
+        type,
+        coeffs: result.coeffs,
+        label: seriesLabel,
+        xMin,
+        xMax,
+        range: this._getRegressionRange(),
+        rangeKey
+      });
+      this._setSeriesLineStyle(id, 'line');
+      this._setSeriesPointStyle(id, 'none');
+      this._setSeriesColor(id, '#f59e0b');
+      this._pendingSelectYId = id;
+    }
+
+    this._update();
   }
 
   _fitLinear(points) {
@@ -1749,6 +1937,20 @@ class Graph {
         return `y = ${fmt(a)}·x^${fmt(b)}`;
       default:
         return '';
+    }
+  }
+
+  _formatRegressionTypeLabel(type) {
+    switch (type) {
+      case 'linear': return 'Droite';
+      case 'exponential': return 'Exponentielle';
+      case 'parabola': return 'Parabole';
+      case 'logarithmic_ln': return 'Log ln';
+      case 'logarithmic_log10': return 'Log10';
+      case 'inverse': return 'Inverse';
+      case 'inverse_square': return 'Inverse²';
+      case 'power': return 'Puissance';
+      default: return 'Régression';
     }
   }
 
