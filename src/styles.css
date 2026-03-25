@@ -831,6 +831,11 @@ td.data-cell.fill-preview {
   color: var(--text);
   background: var(--surface);
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
   transition: background 0.15s, transform 0.1s;
   margin-top: 4px;
 }
@@ -1168,6 +1173,46 @@ td.data-cell.fill-preview {
   background: var(--primary);
   color: #fff;
   font-weight: 600;
+}
+
+#sheet-context-menu {
+  position: fixed;
+  z-index: 1200;
+  min-width: 200px;
+  max-width: 240px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.22);
+  padding: 6px;
+  -webkit-app-region: no-drag;
+}
+
+.sheet-context-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  padding: 6px 10px 4px 10px;
+}
+
+.sheet-context-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  padding: 7px 10px;
+  text-align: left;
+  font-family: var(--font);
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.sheet-context-item:hover {
+  background: var(--primary-light);
+  color: var(--primary-dark);
 }
 
 /* ===== Video Tab ===== */
@@ -1563,6 +1608,36 @@ td.data-cell.fill-preview {
 .icon-convert {
   -webkit-mask-image: url('./icons/convert.svg');
   mask-image: url('./icons/convert.svg');
+}
+
+.icon-ads {
+  -webkit-mask-image: url('./icons/ads.svg');
+  mask-image: url('./icons/ads.svg');
+}
+
+.icon-cancel {
+  -webkit-mask-image: url('./icons/cancel.svg');
+  mask-image: url('./icons/cancel.svg');
+}
+
+.icon-backspace {
+  -webkit-mask-image: url('./icons/backspace.svg');
+  mask-image: url('./icons/backspace.svg');
+}
+
+.icon-function {
+  -webkit-mask-image: url('./icons/function.svg');
+  mask-image: url('./icons/function.svg');
+}
+
+.icon-draw {
+  -webkit-mask-image: url('./icons/draw.svg');
+  mask-image: url('./icons/draw.svg');
+}
+
+.icon-refresh {
+  -webkit-mask-image: url('./icons/refresh.svg');
+  mask-image: url('./icons/refresh.svg');
 }
 
 /* ===== Scrollbar ===== */

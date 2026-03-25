@@ -106,7 +106,10 @@
             <label>Colonne
               <select id="derive-col-select"><option value="">— select —</option></select>
             </label>
-            <button id="derive-btn" class="sidebar-btn blue">Calculer d/dx → nouvelle colonne</button>
+            <button id="derive-btn" class="sidebar-btn blue">
+              <span class="ui-icon icon-function" aria-hidden="true"></span>
+              Calculer d/dx
+            </button>
           </div>
 
           <div class="sidebar-section">
@@ -127,12 +130,18 @@
                 <option value="power">Puissance (y = a·xᵇ)</option>
               </select>
             </label>
-            <button id="fit-curve-btn" class="sidebar-btn amber">Tracer</button>
+            <button id="fit-curve-btn" class="sidebar-btn amber">
+              <span class="ui-icon icon-draw" aria-hidden="true"></span>
+              Tracer
+            </button>
             <div id="regression-result"></div>
           </div>
 
           <div class="sidebar-section">
-            <button id="refresh-graph-btn" class="sidebar-btn blue">Recharger le Graph</button>
+            <button id="refresh-graph-btn" class="sidebar-btn blue">
+              <span class="ui-icon icon-refresh" aria-hidden="true"></span>
+              Recharger le Graph
+            </button>
           </div>
         </aside>
 
@@ -201,9 +210,18 @@
                 <span class="ui-icon frame-btn-icon icon-last-page" aria-hidden="true"></span>
               </button>
             </div>
-            <button id="video-track-btn" class="sidebar-btn amber">4. Démarrer le pointage</button>
-            <button id="video-undo-btn" class="sidebar-btn">Annuler le dernier point</button>
-            <button id="video-reset-btn" class="sidebar-btn">Réinitialiser le pointage</button>
+            <button id="video-track-btn" class="sidebar-btn amber">
+              <span class="ui-icon icon-ads" aria-hidden="true"></span>
+              4. Démarrer le pointage
+            </button>
+            <button id="video-undo-btn" class="sidebar-btn">
+              <span class="ui-icon icon-backspace" aria-hidden="true"></span>
+              Annuler le dernier point
+            </button>
+            <button id="video-reset-btn" class="sidebar-btn">
+              <span class="ui-icon icon-cancel" aria-hidden="true"></span>
+              Réinitialiser le pointage
+            </button>
             <div id="video-track-status" class="video-small">Points: 0</div>
           </div>
         </aside>
