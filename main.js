@@ -211,6 +211,16 @@ ipcMain.handle('save-file', async (event, { filePath, data }) => {
   }
 });
 
+ipcMain.handle('save-binary-file', async (_event, { filePath, dataBase64 }) => {
+  try {
+    const buf = Buffer.from(String(dataBase64 || ''), 'base64');
+    fs.writeFileSync(filePath, buf);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle('read-file', async (event, filePath) => {
   try {
     const data = fs.readFileSync(filePath, 'utf-8');

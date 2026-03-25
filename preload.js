@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   saveFile: (filePath, data) => ipcRenderer.invoke('save-file', { filePath, data }),
+  saveBinaryFile: (filePath, dataBase64) => ipcRenderer.invoke('save-binary-file', { filePath, dataBase64 }),
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   readFileBuffer: (filePath) => ipcRenderer.invoke('read-file-buffer', filePath),
   showSaveDialog: (options) => ipcRenderer.invoke('show-save-dialog', options),

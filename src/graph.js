@@ -37,6 +37,8 @@ class Graph {
     this._fitBtn = document.getElementById('fit-curve-btn');
     this._regressionResult = document.getElementById('regression-result');
     this._refreshBtn = document.getElementById('refresh-graph-btn');
+    this._captureBtn = document.getElementById('capture-graph-btn');
+    this._exportBtn = document.getElementById('export-graph-btn');
     this._canvas = document.getElementById('chart-canvas');
     this._placeholder = document.getElementById('chart-placeholder');
     this._buildCursorMenu();
@@ -61,6 +63,8 @@ class Graph {
     this._fitBtn.addEventListener('click', () => this._fitCurve());
     this._deriveBtn.addEventListener('click', () => this._deriveColumn());
     this._refreshBtn.addEventListener('click', () => this._update());
+    if (this._captureBtn) this._captureBtn.addEventListener('click', () => this._captureGraph());
+    if (this._exportBtn) this._exportBtn.addEventListener('click', () => this._exportGraphCsv());
     this._xSelect.addEventListener('change', () => this._onAxesChanged({ xChanged: true }));
     this._originXInput.addEventListener('change', () => this._onOriginChanged());
     this._originYInput.addEventListener('change', () => this._onOriginChanged());
@@ -323,6 +327,7 @@ class Graph {
       pointLabel.textContent = 'Points';
       menu.appendChild(pointLabel);
       [
+        { value: 'none', label: 'Aucun' },
         { value: 'dots', label: 'Points' },
         { value: 'cross', label: 'Croix' }
       ].forEach(option => {
@@ -373,6 +378,22 @@ class Graph {
       });
       menu.appendChild(colorGrid);
 
+      const uglyBtn = document.createElement('button');
+      uglyBtn.type = 'button';
+      uglyBtn.className = 'y-style-item y-style-random-color';
+      uglyBtn.textContent = 'Couleur improbable';
+      uglyBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const randomColor = this._randomUglyColor();
+        this._setSeriesColor(col.id, randomColor);
+        colorDot.style.backgroundColor = randomColor;
+        colorGrid.querySelectorAll('.y-color-option').forEach(btn => {
+          btn.classList.remove('selected');
+        });
+        this._renderChart();
+      });
+      menu.appendChild(uglyBtn);
+
       row.appendChild(mainBtn);
       row.appendChild(menuBtn);
       row.appendChild(menu);
@@ -403,11 +424,13 @@ class Graph {
   }
 
   _getSeriesPointStyle(colId) {
-    return this._yPointStyleByColId[colId] === 'cross' ? 'cross' : 'dots';
+    const style = this._yPointStyleByColId[colId];
+    if (style === 'cross' || style === 'none') return style;
+    return 'dots';
   }
 
   _setSeriesPointStyle(colId, style) {
-    if (style === 'cross') {
+    if (style === 'cross' || style === 'none') {
       this._yPointStyleByColId[colId] = style;
     } else {
       delete this._yPointStyleByColId[colId];
@@ -416,17 +439,31 @@ class Graph {
 
   _getSeriesColor(colId, fallbackIndex = 0) {
     const saved = this._yColorByColId[colId];
-    if (this._isSelectableColor(saved)) return saved;
+    if (this._isColorValue(saved)) return saved;
     return this._palette[fallbackIndex % this._palette.length];
   }
 
   _setSeriesColor(colId, color) {
-    if (!this._isSelectableColor(color)) return;
+    if (!this._isColorValue(color)) return;
     this._yColorByColId[colId] = color;
   }
 
   _isSelectableColor(color) {
     return typeof color === 'string' && this._colorOptions.includes(color);
+  }
+
+  _isColorValue(color) {
+    if (typeof color !== 'string') return false;
+    return color.trim() !== '';
+  }
+
+  _randomUglyColor() {
+    const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+    const r = rand(200, 240);
+    const g = rand(200, 240);
+    const b = rand(200, 240);
+    const toHex = (n) => n.toString(16).padStart(2, '0');
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
   }
 
   _closeAllSeriesMenus() {
@@ -498,7 +535,7 @@ class Graph {
     }
     if (graphData.yPointStyles && typeof graphData.yPointStyles === 'object') {
       Object.entries(graphData.yPointStyles).forEach(([colId, style]) => {
-        if (style === 'cross') this._yPointStyleByColId[colId] = style;
+        if (style === 'cross' || style === 'none') this._yPointStyleByColId[colId] = style;
       });
     }
     if (graphData.yStyles && typeof graphData.yStyles === 'object') {
@@ -509,14 +546,14 @@ class Graph {
         }
         if (style && typeof style === 'object') {
           if (style.line === 'line' || style.line === 'dotted') this._yLineStyleByColId[colId] = style.line;
-          if (style.point === 'cross') this._yPointStyleByColId[colId] = 'cross';
+          if (style.point === 'cross' || style.point === 'none') this._yPointStyleByColId[colId] = style.point;
         }
       });
     }
     this._yColorByColId = {};
     if (graphData.yColors && typeof graphData.yColors === 'object') {
       Object.entries(graphData.yColors).forEach(([colId, color]) => {
-        if (this._isSelectableColor(color)) this._yColorByColId[colId] = color;
+        if (this._isColorValue(color)) this._yColorByColId[colId] = color;
       });
     }
     this.refreshColumns();
@@ -552,11 +589,11 @@ class Graph {
     });
     const yPointStyles = {};
     Object.entries(this._yPointStyleByColId).forEach(([colId, style]) => {
-      if (style === 'cross') yPointStyles[colId] = style;
+      if (style === 'cross' || style === 'none') yPointStyles[colId] = style;
     });
     const yColors = {};
     Object.entries(this._yColorByColId).forEach(([colId, color]) => {
-      if (this._isSelectableColor(color)) yColors[colId] = color;
+      if (this._isColorValue(color)) yColors[colId] = color;
     });
     return {
       xColumn: this._xSelect.value || '',
@@ -701,6 +738,7 @@ class Graph {
     allSeries.forEach(({ label, points, lineStyle, pointStyle, color }, idx) => {
       const sorted = this._pointerSeries[idx] ? this._pointerSeries[idx].points : [...points].sort((a, b) => a.x - b.x);
       const isLine = lineStyle === 'line' || lineStyle === 'dotted';
+      const showPoints = pointStyle !== 'none';
       datasets.push({
         label,
         data: sorted,
@@ -709,8 +747,9 @@ class Graph {
         borderColor: color,
         borderWidth: isLine ? 2 : 1.5,
         borderDash: lineStyle === 'dotted' ? [7, 5] : [],
-        pointRadius: 5,
-        pointHoverRadius: 7,
+        pointRadius: showPoints ? 5 : 0,
+        pointHoverRadius: showPoints ? 7 : 0,
+        pointHitRadius: showPoints ? 6 : 0,
         pointStyle: pointStyle === 'cross' ? 'cross' : 'circle',
         pointBorderWidth: pointStyle === 'cross' ? 2.2 : 1.2,
         showLine: isLine,
@@ -751,11 +790,17 @@ class Graph {
       x: {
         type: 'linear',
         title: { display: true, text: xLabel, font: { size: 12 } },
-        grid: { color: 'rgba(0,0,0,0.06)' }
+        grid: { color: 'rgba(0,0,0,0.05)' },
+        ticks: {
+          maxTicksLimit: 12
+        }
       },
       y: {
         title: { display: true, text: yAxisTitle, font: { size: 12 } },
-        grid: { color: 'rgba(0,0,0,0.06)' },
+        grid: { color: 'rgba(0,0,0,0.05)' },
+        ticks: {
+          maxTicksLimit: 12
+        },
         afterFit: (scale) => {
           // Keep Y-axis label gutter stable so zooming doesn't shift chart origin.
           scale.width = 66;
@@ -1312,6 +1357,76 @@ class Graph {
     if (!this._chart || !this._chart.options) return;
     this._applyAxisZoomToScales(this._chart.options.scales);
     this._chart.update('none');
+  }
+
+  async _captureGraph() {
+    if (!this._chart || !this._chart.canvas) {
+      alert('Aucun graphique à capturer.');
+      return;
+    }
+    if (!window.electronAPI || typeof window.electronAPI.saveBinaryFile !== 'function') return;
+
+    const dataUrl = this._chart.canvas.toDataURL('image/png');
+    const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+    const { canceled, filePath } = await window.electronAPI.showSaveDialog({
+      title: 'Capturer le Graph',
+      defaultPath: 'graph.png',
+      filters: [
+        { name: 'PNG', extensions: ['png'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+    if (canceled || !filePath) return;
+    const res = await window.electronAPI.saveBinaryFile(filePath, base64);
+    if (!res || !res.success) {
+      alert('Capture impossible: ' + (res && res.error ? res.error : 'unknown'));
+    }
+  }
+
+  async _exportGraphCsv() {
+    if (!window.electronAPI) return;
+    const xId = this._xSelect.value;
+    const yIds = this._getSelectedYIds();
+    if (!xId || yIds.length === 0) {
+      alert('Sélectionnez un axe X et au moins un axe Y.');
+      return;
+    }
+    const cols = this._sheet.getColumns();
+    const colById = new Map(cols.map(c => [c.id, c]));
+    const xCol = colById.get(xId);
+    const yCols = yIds.map(id => colById.get(id)).filter(Boolean);
+    const header = [
+      xCol ? (xCol.unit ? `${xCol.name} (${xCol.unit})` : xCol.name) : 'X',
+      ...yCols.map(c => (c.unit ? `${c.name} (${c.unit})` : c.name))
+    ];
+
+    const xVals = this._sheet.getColumnValues(xId);
+    const yVals = yIds.map(id => this._sheet.getColumnValues(id));
+    const rowCount = Math.max(xVals.length, ...yVals.map(arr => arr.length));
+    const rows = [header.map(h => `"${h}"`).join(',')];
+
+    for (let r = 0; r < rowCount; r++) {
+      const row = [xVals[r], ...yVals.map(arr => arr[r])].map(v => {
+        if (v === null || v === undefined || v === '') return '';
+        return typeof v === 'number' ? String(v) : `"${v}"`;
+      });
+      rows.push(row.join(','));
+    }
+
+    const csv = rows.join('\n');
+    const { canceled, filePath } = await window.electronAPI.showSaveDialog({
+      title: 'Exporter en Excel (CSV)',
+      defaultPath: 'graph.csv',
+      filters: [
+        { name: 'CSV File', extensions: ['csv'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+    if (canceled || !filePath) return;
+    const res = await window.electronAPI.saveFile(filePath, csv);
+    if (!res || !res.success) {
+      alert('Export CSV impossible: ' + (res && res.error ? res.error : 'unknown'));
+    }
   }
 
   _isValidRange(min, max) {

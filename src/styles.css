@@ -1640,6 +1640,16 @@ td.data-cell.fill-preview {
   mask-image: url('./icons/refresh.svg');
 }
 
+.icon-capture {
+  -webkit-mask-image: url('./icons/capture.svg');
+  mask-image: url('./icons/capture.svg');
+}
+
+.icon-export {
+  -webkit-mask-image: url('./icons/export.svg');
+  mask-image: url('./icons/export.svg');
+}
+
 /* ===== Scrollbar ===== */
 ::-webkit-scrollbar {
   width: 8px;
