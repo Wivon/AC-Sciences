@@ -7,6 +7,16 @@ const { pathToFileURL } = require('url');
 function resolveFfmpegPath() {
   const exeName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
   const candidates = [];
+
+  // Check resources path first (where electron-builder puts it)
+  const resources = process.resourcesPath || '';
+  if (resources) {
+    candidates.push(path.join(resources, 'ffmpeg-static', exeName));
+    candidates.push(path.join(resources, 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', exeName));
+    candidates.push(path.join(resources, 'node_modules', 'ffmpeg-static', exeName));
+  }
+
+  // Then check ffmpeg-static package path
   let pkgPath = null;
   try {
     pkgPath = require('ffmpeg-static');
@@ -18,12 +28,6 @@ function resolveFfmpegPath() {
     if (pkgPath.includes('app.asar')) {
       candidates.push(pkgPath.replace('app.asar', 'app.asar.unpacked'));
     }
-  }
-  const resources = process.resourcesPath || '';
-  if (resources) {
-    candidates.push(path.join(resources, 'ffmpeg-static', exeName));
-    candidates.push(path.join(resources, 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', exeName));
-    candidates.push(path.join(resources, 'node_modules', 'ffmpeg-static', exeName));
   }
 
   for (const candidate of candidates) {
@@ -38,6 +42,15 @@ function getFfmpegDiagnostics() {
   const resources = process.resourcesPath || '';
   const appPath = app.getAppPath ? app.getAppPath() : '';
   const candidates = [];
+
+  // Check resources path first (where electron-builder puts it)
+  if (resources) {
+    candidates.push(path.join(resources, 'ffmpeg-static', exeName));
+    candidates.push(path.join(resources, 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', exeName));
+    candidates.push(path.join(resources, 'node_modules', 'ffmpeg-static', exeName));
+  }
+
+  // Then check ffmpeg-static package path
   let pkgPath = null;
   try {
     pkgPath = require('ffmpeg-static');
@@ -50,11 +63,7 @@ function getFfmpegDiagnostics() {
       candidates.push(pkgPath.replace('app.asar', 'app.asar.unpacked'));
     }
   }
-  if (resources) {
-    candidates.push(path.join(resources, 'ffmpeg-static', exeName));
-    candidates.push(path.join(resources, 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', exeName));
-    candidates.push(path.join(resources, 'node_modules', 'ffmpeg-static', exeName));
-  }
+
   return {
     exeName,
     resources,

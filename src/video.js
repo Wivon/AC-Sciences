@@ -967,7 +967,7 @@ class VideoTracker {
   _drawMagnifier(videoPoint, rect) {
     if (!videoPoint || !rect) return;
     const zoom = 12;
-    const size = 450;
+    const size = 300;
     const srcSize = size / zoom;
     const videoW = this._video.videoWidth || 0;
     const videoH = this._video.videoHeight || 0;
