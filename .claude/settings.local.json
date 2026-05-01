@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(npm install)",
-      "Bash(ls /Users/lilian/Code-local/AC-Sciences/*.js)"
+      "Bash(ls /Users/lilian/Code-local/AC-Sciences/*.js)",
+      "Bash(npm run *)",
+      "Bash(kill %1)",
+      "Bash(wait)",
+      "Bash(npx electron *)",
+      "Bash(kill 62105 63668 63670 65249)",
+      "Bash(pkill -f \"Labo Claveille\")"
     ]
   }
 }

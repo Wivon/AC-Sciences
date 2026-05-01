@@ -1,13 +1,25 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const { pathToFileURL } = require('url');
+
+function hasFfmpegInPath() {
+  const exeName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+  try {
+    const result = spawnSync(exeName, ['-version'], { windowsHide: true });
+    return result && result.status === 0;
+  } catch (_e) {
+    return false;
+  }
+}
 
 function resolveFfmpegPath() {
   const exeName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
   const candidates = [];
   let pkgPath = null;
+  const envPath = typeof process.env.FFMPEG_PATH === 'string' ? process.env.FFMPEG_PATH.trim() : '';
+  if (envPath) candidates.push(envPath);
   try {
     pkgPath = require('ffmpeg-static');
   } catch (_e) {
@@ -24,6 +36,10 @@ function resolveFfmpegPath() {
     candidates.push(path.join(resources, 'ffmpeg-static', exeName));
     candidates.push(path.join(resources, 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', exeName));
     candidates.push(path.join(resources, 'node_modules', 'ffmpeg-static', exeName));
+  }
+  const execDir = process.execPath ? path.dirname(process.execPath) : '';
+  if (execDir) {
+    candidates.push(path.join(execDir, exeName));
   }
 
   for (const candidate of candidates) {
@@ -31,6 +47,7 @@ function resolveFfmpegPath() {
     const normalized = path.normalize(candidate);
     if (fs.existsSync(normalized)) return normalized;
   }
+  if (hasFfmpegInPath()) return exeName;
   return null;
 }
 function getFfmpegDiagnostics() {
@@ -38,6 +55,8 @@ function getFfmpegDiagnostics() {
   const resources = process.resourcesPath || '';
   const appPath = app.getAppPath ? app.getAppPath() : '';
   const candidates = [];
+  const envPath = typeof process.env.FFMPEG_PATH === 'string' ? process.env.FFMPEG_PATH.trim() : '';
+  if (envPath) candidates.push(envPath);
   let pkgPath = null;
   try {
     pkgPath = require('ffmpeg-static');
@@ -55,11 +74,16 @@ function getFfmpegDiagnostics() {
     candidates.push(path.join(resources, 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', exeName));
     candidates.push(path.join(resources, 'node_modules', 'ffmpeg-static', exeName));
   }
+  const execDir = process.execPath ? path.dirname(process.execPath) : '';
+  if (execDir) {
+    candidates.push(path.join(execDir, exeName));
+  }
   return {
     exeName,
     resources,
     appPath,
     pkgPath,
+    ffmpegInPath: hasFfmpegInPath(),
     candidates: candidates.map(p => ({
       path: p,
       exists: !!(p && fs.existsSync(p))
